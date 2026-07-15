@@ -8,7 +8,13 @@ smooth 60 Hz updates. The 4.90 MB cache is stored in the firmware as a 465 KB
 zlib asset, validated and decompressed directly into PSRAM during the startup
 screen. An initial sweep runs before live sensor readings begin.
 
+## Gauge demo
+
 ![Civic boost gauge demo](firmware/1.0.0/civic-boost-gauge-demo.gif)
+
+## Boot screen
+
+![Honda Civic boot screen](firmware/1.0.0/civic-boost-gauge-boot.png)
 
 ## Features
 

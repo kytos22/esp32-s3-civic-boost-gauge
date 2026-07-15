@@ -12,6 +12,7 @@ variant, powered from `2.5 to 5.5 V` at I2C address `0x6D`.
   already has the correct bootloader and partition table. Flash it at
   address `0x10000`.
 - `civic-boost-gauge-demo.gif`: visual demonstration of the gauge sweep.
+- `civic-boost-gauge-boot.png`: exact 466x466 boot-screen preview.
 
 Example full flash:
 
