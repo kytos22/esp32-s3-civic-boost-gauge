@@ -1542,6 +1542,7 @@ void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
             FT3168->Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_X);
         int touch_y = (int)FT3168->IIC_Read_Device_Value(
             FT3168->Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_Y);
+
         data->state = LV_INDEV_STATE_PR;
         data->point.x = touch_x;
         data->point.y = touch_y;
@@ -1906,7 +1907,33 @@ void update_brightness_label()
 void brightness_slider_event(lv_event_t *event)
 {
     (void)event;
-    screen_brightness = (uint8_t)lv_slider_get_value(brightness_slider);
+
+    lv_point_t touch;
+    lv_indev_get_point(lv_indev_get_act(), &touch);
+
+    lv_area_t slider_area;
+    lv_obj_get_coords(brightness_slider, &slider_area);
+    const lv_coord_t slider_center_y =
+        slider_area.y1 + lv_area_get_height(&slider_area) / 2;
+    lv_point_t visual_start = {slider_area.x1, slider_center_y};
+    lv_point_t visual_end = {slider_area.x2, slider_center_y};
+    lv_obj_transform_point(brightness_slider, &visual_start, true, false);
+    lv_obj_transform_point(brightness_slider, &visual_end, true, false);
+
+    const int32_t axis_x = visual_end.x - visual_start.x;
+    const int32_t axis_y = visual_end.y - visual_start.y;
+    const int32_t axis_length_sq = axis_x * axis_x + axis_y * axis_y;
+    if (axis_length_sq <= 0) return;
+
+    int32_t position =
+        (touch.x - visual_start.x) * axis_x +
+        (touch.y - visual_start.y) * axis_y;
+    position = LV_CLAMP(0, position, axis_length_sq);
+
+    const int32_t value = 10 +
+        (position * (255 - 10) + axis_length_sq / 2) / axis_length_sq;
+    lv_slider_set_value(brightness_slider, value, LV_ANIM_OFF);
+    screen_brightness = (uint8_t)value;
     gfx->Display_Brightness(screen_brightness);
     update_brightness_label();
 }
@@ -2052,7 +2079,8 @@ void create_ui()
     lv_obj_set_style_radius(brightness_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
     lv_obj_set_style_width(brightness_slider, 40, LV_PART_KNOB);
     lv_obj_set_style_height(brightness_slider, 40, LV_PART_KNOB);
-    lv_obj_add_event_cb(brightness_slider, brightness_slider_event, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_set_ext_click_area(brightness_slider, 16);
+    lv_obj_add_event_cb(brightness_slider, brightness_slider_event, LV_EVENT_PRESSING, NULL);
 
     lv_obj_t *brightness_down = lv_btn_create(brightness_panel);
     lv_obj_set_size(brightness_down, 58, 58);

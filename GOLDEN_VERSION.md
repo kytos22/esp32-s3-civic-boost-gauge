@@ -1,4 +1,4 @@
-# Golden Version: Smooth Tile Renderer
+# Golden Version: Smooth Renderer and Aligned Touch
 
 Date: 2026-07-15
 Status: Verified by hardware observation
@@ -11,6 +11,12 @@ Status: Verified by hardware observation
 - Build-time zlib asset loaded and CRC-validated into PSRAM at startup.
 - Maximum measured diagnostic frame: 11.64 ms.
 - Diagnostic telemetry is disabled for normal use.
+- Brightness slider follows the visually rotated control 1:1.
+- Brightness controls verified on the 466x466 FT3168 touch panel.
+- Compiled recovery and application images are stored in `firmware/golden/`.
+
+The final pressure-sensor calibration remains pending until the replacement
+sensor is installed.
 
 Do not change the rendering or display-transfer path without making a new
 backup first.

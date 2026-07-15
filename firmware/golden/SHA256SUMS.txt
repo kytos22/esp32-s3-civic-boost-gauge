@@ -1,0 +1,2 @@
+08317474f0190b79044a092600f601eeabf0d014b99c9584b52c9a1e12e6f457  civic-boost-gauge-app.bin
+b8c5b0c08017362ab1ba09c1253c15e69dba092ed8c187e6d20b12c4f0bc4499  civic-boost-gauge-full.bin
