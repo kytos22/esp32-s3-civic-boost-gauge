@@ -1,0 +1,13 @@
+.pio/
+.npm-cache/
+.agents/
+.vscode/
+2026/
+
+*.log
+*.zip
+src/main.cpp.last.cpp
+src/main.cpp.mejor
+src/main.cpp.old
+.DS_Store
+Thumbs.db
