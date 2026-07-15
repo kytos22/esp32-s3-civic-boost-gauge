@@ -3,20 +3,26 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const outputDir = path.join(root, 'firmware', '1.0.0');
-const frameDir = path.join(outputDir, '.demo-gif-frames');
-const output = path.join(outputDir, 'civic-boost-gauge-demo.gif');
+const releaseVersion = process.argv[2] || '1.1.0';
+const outputDir = path.join(root, 'firmware', releaseVersion);
 const captureSource = path.join(root, 'tools', 'prebaked_capture.bin');
 const cacheSource = path.join(root, 'tools', 'prebaked_gauge_cache.bin');
 const fontSource = path.join(root, 'src', 'boost_font_90_bold.c');
+const scaleFontSource = path.join(root, 'lib', 'lvgl', 'src', 'font', 'lv_font_montserrat_18.c');
+const unitFontSource = path.join(root, 'src', 'psi_font_32_bold.c');
 
 const width = 466;
 const height = 466;
 const pixelCount = width * height;
 const minPsi = -15;
 const maxPsi = 30;
+const minBar = -1;
+const maxBar = 2;
 const zeroAngleTenths = 450;
 const sweepAngleTenths = 2700;
+const centerX = 232;
+const centerY = 233;
+const labelRadius = 158;
 const valueLogicalX = 108;
 const valueLogicalY = 176;
 const valueLogicalWidth = 250;
@@ -26,6 +32,17 @@ const valueDecimalAnchorX = Math.floor(width / 2) + 20;
 const frameCount = 601;
 const frameDelay = 2;
 const headerSize = 14 * 4;
+
+const units = {
+    psi: {
+        output: 'civic-boost-gauge-psi-demo.gif',
+        valueForAngle: psiForAngleTenths,
+    },
+    bar: {
+        output: 'civic-boost-gauge-bar-demo.gif',
+        valueForAngle: barForAngleTenths,
+    },
+};
 
 function run(command, args) {
     const result = spawnSync(command, args, { stdio: 'inherit', shell: false });
@@ -50,6 +67,37 @@ function lvColorMix(foreground, background, opacity) {
     const product = Math.imul((fg - bg) >>> 0, mix) >>> 0;
     const result = (((product >>> 5) + bg) >>> 0) & mask;
     return swap16(((result >>> 16) | result) & 0xffff);
+}
+
+function lvColor(red, green, blue) {
+    const value = ((red >>> 3) << 11) | ((green >>> 2) << 5) | (blue >>> 3);
+    return swap16(value);
+}
+
+function smoothstep(value) {
+    const clamped = Math.max(0, Math.min(1, value));
+    return clamped * clamped * (3 - 2 * clamped);
+}
+
+function boostColor(psi) {
+    const blue = lvColor(0x21, 0x96, 0xf3);
+    const green = lvColor(0x4c, 0xaf, 0x50);
+    const yellow = lvColor(0xff, 0xeb, 0x3b);
+    const red = lvColor(0xf4, 0x43, 0x36);
+
+    if (psi < -2) return blue;
+    if (psi < 2) {
+        return lvColorMix(green, blue, Math.trunc(smoothstep((psi + 2) / 4) * 255));
+    }
+    if (psi < 12) return green;
+    if (psi < 15) {
+        return lvColorMix(yellow, green, Math.trunc(smoothstep((psi - 12) / 3) * 255));
+    }
+    if (psi < 20) return yellow;
+    if (psi < 26) {
+        return lvColorMix(red, yellow, Math.trunc(smoothstep((psi - 20) / 6) * 255));
+    }
+    return red;
 }
 
 function writeRotatedPpm(file, pixels) {
@@ -203,6 +251,154 @@ function parseFont() {
     }));
 }
 
+function parseStaticFont(sourcePath, characters, descriptorForCharacter,
+                         lineHeight, baseline) {
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    const bitmapBlock = source.match(/glyph_bitmap\[\] = \{([\s\S]*?)\n\};/);
+    const descriptorBlock = source.match(/glyph_dsc\[\] = \{([\s\S]*?)\n\};/);
+    if (!bitmapBlock || !descriptorBlock) {
+        throw new Error(`Unable to parse static font ${sourcePath}`);
+    }
+
+    const bitmap = Buffer.from([...bitmapBlock[1].matchAll(/0x([0-9a-f]+)/gi)]
+        .map((match) => Number.parseInt(match[1], 16)));
+    const descriptors = [...descriptorBlock[1].matchAll(
+        /\.bitmap_index = (\d+), \.adv_w = (\d+), \.box_w = (\d+), \.box_h = (\d+), \.ofs_x = (-?\d+), \.ofs_y = (-?\d+)/g,
+    )].map((match) => ({
+        bitmapIndex: Number(match[1]),
+        advance: (Number(match[2]) + 8) >>> 4,
+        boxWidth: Number(match[3]),
+        boxHeight: Number(match[4]),
+        offsetX: Number(match[5]),
+        offsetY: Number(match[6]),
+    }));
+
+    const glyphs = Object.fromEntries([...characters].map((character) => {
+        const descriptor = descriptors[descriptorForCharacter(character)];
+        if (!descriptor) throw new Error(`Missing glyph ${character} in ${sourcePath}`);
+        return [character, descriptor];
+    }));
+    return { bitmap, glyphs, lineHeight, baseline };
+}
+
+function staticTextWidth(font, text) {
+    return [...text].reduce((width, character) =>
+        width + font.glyphs[character].advance, 0);
+}
+
+function staticGlyphOpacity(font, descriptor, pixel) {
+    const packed = font.bitmap[descriptor.bitmapIndex + (pixel >>> 1)];
+    const shade = pixel & 1 ? packed & 0x0f : packed >>> 4;
+    return shade * 17;
+}
+
+function clearStaticLogicalRect(pixels, x1, y1, x2, y2) {
+    const firstX = Math.max(0, x1);
+    const firstY = Math.max(0, y1);
+    const lastX = Math.min(width - 1, x2);
+    const lastY = Math.min(height - 1, y2);
+    for (let logicalY = firstY; logicalY <= lastY; logicalY += 1) {
+        for (let logicalX = firstX; logicalX <= lastX; logicalX += 1) {
+            const physicalX = height - 1 - logicalY;
+            const physicalY = logicalX;
+            pixels[physicalY * width + physicalX] = 0;
+        }
+    }
+}
+
+function drawStaticText(pixels, font, text, centerLogicalX, centerLogicalY, color) {
+    let logicalX = centerLogicalX - Math.trunc(staticTextWidth(font, text) / 2);
+    const logicalY = centerLogicalY - Math.trunc(font.lineHeight / 2);
+
+    for (const character of text) {
+        const descriptor = font.glyphs[character];
+        const glyphX = logicalX + descriptor.offsetX;
+        const glyphY = logicalY + (font.lineHeight - font.baseline) -
+            descriptor.boxHeight - descriptor.offsetY;
+        for (let row = 0; row < descriptor.boxHeight; row += 1) {
+            for (let column = 0; column < descriptor.boxWidth; column += 1) {
+                const sourcePixel = row * descriptor.boxWidth + column;
+                const opacity = staticGlyphOpacity(font, descriptor, sourcePixel);
+                if (opacity === 0) continue;
+                const physicalX = height - 1 - (glyphY + row);
+                const physicalY = glyphX + column;
+                if (physicalX < 0 || physicalX >= width ||
+                    physicalY < 0 || physicalY >= height) continue;
+                const destination = physicalY * width + physicalX;
+                pixels[destination] = opacity === 255
+                    ? color
+                    : lvColorMix(color, pixels[destination], opacity);
+            }
+        }
+        logicalX += descriptor.advance;
+    }
+}
+
+function lround(value) {
+    return value >= 0 ? Math.floor(value + 0.5) : Math.ceil(value - 0.5);
+}
+
+function gaugeAngle(value, minimum, maximum) {
+    if (value <= 0) {
+        return 225 + ((value - minimum) / -minimum) * 45;
+    }
+    return 270 + (value / maximum) * 225;
+}
+
+function logicalLabelCenter(value, minimum, maximum) {
+    const radians = gaugeAngle(value, minimum, maximum) * Math.PI / 180;
+    const nativeX = centerX + lround(Math.cos(radians) * labelRadius);
+    const nativeY = centerY + lround(Math.sin(radians) * labelRadius);
+    return { x: nativeY, y: height - 1 - nativeX };
+}
+
+function prepareBarStaticFrame(psiFrame) {
+    const pixels = psiFrame.slice();
+    const scaleFont = parseStaticFont(
+        scaleFontSource, '-.0123456789',
+        (character) => character.codePointAt(0) - 0x20 + 1,
+        21, 4,
+    );
+    const unitOrder = 'ABIPRS';
+    const unitFont = parseStaticFont(
+        unitFontSource, 'BAR',
+        (character) => unitOrder.indexOf(character) + 1,
+        23, 0,
+    );
+
+    const psiLabels = [
+        [-15, '-15'], [-10, '-10'], [-5, '-5'], [0, '0'], [5, '5'],
+        [10, '10'], [15, '15'], [20, '20'], [25, '25'], [30, '30'],
+    ];
+    for (const [value, text] of psiLabels) {
+        const center = logicalLabelCenter(value, minPsi, maxPsi);
+        const halfWidth = Math.trunc(staticTextWidth(scaleFont, text) / 2) + 2;
+        const halfHeight = Math.trunc(scaleFont.lineHeight / 2) + 2;
+        clearStaticLogicalRect(
+            pixels,
+            center.x - halfWidth, center.y - halfHeight,
+            center.x + halfWidth, center.y + halfHeight,
+        );
+    }
+    clearStaticLogicalRect(pixels, 195, 276, 270, 320);
+
+    const barLabels = [
+        [-1, '-1'], [-0.5, '-0.5'], [0, '0'], [0.5, '0.5'],
+        [1, '1'], [1.5, '1.5'], [2, '2'],
+    ];
+    for (const [value, text] of barLabels) {
+        const center = logicalLabelCenter(value, minBar, maxBar);
+        const referencePsi = value <= 0
+            ? minPsi + ((value - minBar) / -minBar) * -minPsi
+            : (value / maxBar) * maxPsi;
+        drawStaticText(
+            pixels, scaleFont, text, center.x, center.y, boostColor(referencePsi),
+        );
+    }
+    drawStaticText(pixels, unitFont, 'BAR', 233, 299, 0xffff);
+    return pixels;
+}
+
 function applyArcState(pixels, cache, state) {
     let spatialRun = 0;
     let usedInRun = 0;
@@ -288,37 +484,52 @@ function psiForAngleTenths(angleTenths) {
         (sweepAngleTenths - zeroAngleTenths)) * maxPsi;
 }
 
-fs.rmSync(frameDir, { recursive: true, force: true });
-fs.mkdirSync(frameDir, { recursive: true });
+function barForAngleTenths(angleTenths) {
+    if (angleTenths <= zeroAngleTenths) {
+        return minBar + (angleTenths / zeroAngleTenths) * -minBar;
+    }
+    return ((angleTenths - zeroAngleTenths) /
+        (sweepAngleTenths - zeroAngleTenths)) * maxBar;
+}
 
-const staticFrame = parseCapturedGauge();
+fs.mkdirSync(outputDir, { recursive: true });
+const psiStaticFrame = parseCapturedGauge();
+const staticFrames = {
+    psi: psiStaticFrame,
+    bar: prepareBarStaticFrame(psiStaticFrame),
+};
 const cache = parseCache();
 const glyphs = parseFont();
 
-for (let index = 0; index < frameCount; index += 1) {
-    const phase = index / (frameCount - 1);
-    const triangle = phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
-    const stateIndex = Math.round(triangle * (cache.states.length - 1));
-    const angleTenths = stateIndex * 5;
-    const pixels = staticFrame.slice();
-    const state = cache.states[stateIndex];
+for (const [unit, configuration] of Object.entries(units)) {
+    const frameDir = path.join(outputDir, `.demo-gif-${unit}-frames`);
+    fs.rmSync(frameDir, { recursive: true, force: true });
+    fs.mkdirSync(frameDir, { recursive: true });
 
-    applyArcState(pixels, cache, state);
-    applyCursorState(pixels, cache, state);
-    applyValue(pixels, glyphs, psiForAngleTenths(angleTenths));
-    writeRotatedPpm(
-        path.join(frameDir, `frame-${String(index).padStart(3, '0')}.ppm`),
-        pixels,
-    );
+    for (let index = 0; index < frameCount; index += 1) {
+        const phase = index / (frameCount - 1);
+        const triangle = phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
+        const stateIndex = Math.round(triangle * (cache.states.length - 1));
+        const angleTenths = stateIndex * 5;
+        const pixels = staticFrames[unit].slice();
+        const state = cache.states[stateIndex];
+
+        applyArcState(pixels, cache, state);
+        applyCursorState(pixels, cache, state);
+        applyValue(pixels, glyphs, configuration.valueForAngle(angleTenths));
+        writeRotatedPpm(
+            path.join(frameDir, `frame-${String(index).padStart(3, '0')}.ppm`),
+            pixels,
+        );
+    }
+
+    run('magick', [
+        '-background', 'black',
+        path.join(frameDir, 'frame-*.ppm'),
+        '-set', 'delay', String(frameDelay),
+        '-loop', '0',
+        '-layers', 'Optimize',
+        path.join(outputDir, configuration.output),
+    ]);
+    fs.rmSync(frameDir, { recursive: true, force: true });
 }
-
-run('magick', [
-    '-background', 'black',
-    path.join(frameDir, 'frame-*.ppm'),
-    '-set', 'delay', String(frameDelay),
-    '-loop', '0',
-    '-layers', 'Optimize',
-    output,
-]);
-
-fs.rmSync(frameDir, { recursive: true, force: true });

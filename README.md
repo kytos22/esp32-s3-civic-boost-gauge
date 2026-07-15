@@ -8,13 +8,17 @@ smooth 60 Hz updates. The 4.90 MB cache is stored in the firmware as a 465 KB
 zlib asset, validated and decompressed directly into PSRAM during the startup
 screen. An initial sweep runs before live sensor readings begin.
 
-## Gauge demo
+## PSI gauge demo
 
-![Civic boost gauge demo](firmware/1.0.0/civic-boost-gauge-demo.gif?rev=942f434)
+![Civic boost gauge PSI demo](firmware/1.1.0/civic-boost-gauge-psi-demo.gif)
+
+## BAR gauge demo
+
+![Civic boost gauge BAR demo](firmware/1.1.0/civic-boost-gauge-bar-demo.gif)
 
 ## Boot screen
 
-![Honda Civic boot screen](firmware/1.0.0/civic-boost-gauge-boot.png)
+![Honda Civic boot screen](firmware/1.1.0/civic-boost-gauge-boot.png)
 
 ## Features
 
@@ -66,7 +70,7 @@ pio run --target upload --upload-port COM6
 ```
 
 The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
-1.0 firmware images and the demo GIF are in `firmware/1.0.0/`.
+1.1 firmware images and both gauge GIFs are in `firmware/1.1.0/`.
 
 ## Prebaked cache
 
