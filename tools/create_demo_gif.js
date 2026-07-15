@@ -3,20 +3,39 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const outputDir = path.join(root, 'firmware', 'golden');
+const outputDir = path.join(root, 'firmware', '1.0.0');
 const frameDir = path.join(outputDir, '.demo-gif-frames');
+const rotatedBase = path.join(frameDir, 'gauge-static.png');
 const output = path.join(outputDir, 'civic-boost-gauge-demo.gif');
+const fontSource = path.join(root, 'src', 'boost_font_90_bold.c');
+const staticGauge = path.join(root, 'tools', 'prebaked_gauge.png');
 
+// These values intentionally mirror src/main.cpp. The static layer comes from
+// the captured prebaked frame and the dynamic layer uses the same cache geometry.
 const width = 466;
 const height = 466;
 const centerX = 232;
 const centerY = 233;
-const startDeg = 225;
-const endDeg = 495;
+const startDeg = 135;
+const endDeg = 405;
 const minPsi = -15;
 const maxPsi = 30;
-const frameCount = 36;
-const radius = 193;
+const arcRadius = 221;
+const arcWidth = 24;
+const cursorInnerRadius = 199;
+const cursorOuterRadius = 232;
+const valueLogicalX = 108;
+const valueLogicalY = 176;
+const valueLogicalWidth = 250;
+const valueLineHeight = 66;
+const valueBaseline = 1;
+const frameCount = 151;
+const frameDelay = 8;
+
+function run(command, args) {
+    const result = spawnSync(command, args, { stdio: 'inherit', shell: false });
+    if (result.status !== 0) process.exit(result.status || 1);
+}
 
 function polar(degrees, distance) {
     const radians = degrees * Math.PI / 180;
@@ -33,92 +52,136 @@ function pathForArc(start, end, distance) {
     return `M ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${distance} ${distance} 0 ${largeArc} 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)}`;
 }
 
-function colorForProgress(progress) {
-    const stops = [
-        [0.00, [44, 151, 255]],
-        [0.38, [58, 210, 112]],
-        [0.67, [255, 225, 40]],
-        [1.00, [255, 54, 45]],
-    ];
-    for (let i = 1; i < stops.length; i += 1) {
-        if (progress <= stops[i][0]) {
-            const [leftStop, rightStop] = [stops[i - 1], stops[i]];
-            const ratio = (progress - leftStop[0]) / (rightStop[0] - leftStop[0]);
-            const rgb = leftStop[1].map((value, index) =>
-                Math.round(value + (rightStop[1][index] - value) * ratio));
-            return `rgb(${rgb.join(',')})`;
-        }
-    }
-    return 'rgb(255,54,45)';
+function smoothstep(value) {
+    const clamped = Math.max(0, Math.min(1, value));
+    return clamped * clamped * (3 - 2 * clamped);
 }
 
-function text(value, x, y, size, color = '#ffffff', anchor = 'middle') {
-    return `<text x="${x}" y="${y}" fill="${color}" font-family="Arial, sans-serif" font-size="${size}px" font-weight="700" text-anchor="${anchor}">${value}</text>`;
+function mix(left, right, amount) {
+    return left.map((value, index) => Math.round(value + (right[index] - value) * amount));
+}
+
+function rgb(color) {
+    return `rgb(${color.join(',')})`;
+}
+
+function boostColor(psi) {
+    const blue = [33, 150, 243];
+    const green = [76, 175, 80];
+    const yellow = [255, 235, 59];
+    const red = [244, 67, 54];
+
+    if (psi < -2) return rgb(blue);
+    if (psi < 2) return rgb(mix(blue, green, smoothstep((psi + 2) / 4)));
+    if (psi < 12) return rgb(green);
+    if (psi < 15) return rgb(mix(green, yellow, smoothstep((psi - 12) / 3)));
+    if (psi < 20) return rgb(yellow);
+    if (psi < 26) return rgb(mix(yellow, red, smoothstep((psi - 20) / 6)));
+    return rgb(red);
+}
+
+function parseFont() {
+    const source = fs.readFileSync(fontSource, 'utf8');
+    const bitmapBlock = source.match(/glyph_bitmap\[\] = \{([\s\S]*?)\n\};/);
+    const descriptorBlock = source.match(/glyph_dsc\[\] = \{([\s\S]*?)\n\};/);
+    if (!bitmapBlock || !descriptorBlock) throw new Error('Unable to parse the LVGL value font');
+
+    const bitmap = [...bitmapBlock[1].matchAll(/0x([0-9a-f]+)/gi)]
+        .map((match) => Number.parseInt(match[1], 16));
+    const descriptors = [...descriptorBlock[1].matchAll(
+        /\.bitmap_index = (\d+), \.adv_w = (\d+), \.box_w = (\d+), \.box_h = (\d+), \.ofs_x = (-?\d+), \.ofs_y = (-?\d+)/g,
+    )].map((match) => ({
+        bitmapIndex: Number(match[1]),
+        advance: Math.floor(Number(match[2]) / 16),
+        width: Number(match[3]),
+        height: Number(match[4]),
+        offsetX: Number(match[5]),
+        offsetY: Number(match[6]),
+    })).filter((descriptor) => descriptor.advance > 0);
+
+    const characters = '-.0123456789';
+    return Object.fromEntries(characters.split('').map((character, index) => [
+        character,
+        { ...descriptors[index], bitmap },
+    ]));
+}
+
+const glyphs = parseFont();
+
+function valuePixels(value) {
+    const text = value.toFixed(1);
+    const textWidth = [...text].reduce((sum, character) => sum + glyphs[character].advance, 0);
+    let logicalX = valueLogicalX + Math.floor((valueLogicalWidth - textWidth) / 2);
+    const pixels = [];
+
+    for (const character of text) {
+        const glyph = glyphs[character];
+        const glyphX = logicalX + glyph.offsetX;
+        const glyphY = valueLogicalY + (valueLineHeight - valueBaseline) - glyph.height - glyph.offsetY;
+        for (let row = 0; row < glyph.height; row += 1) {
+            for (let column = 0; column < glyph.width; column += 1) {
+                const sourcePixel = row * glyph.width + column;
+                const packed = glyph.bitmap[glyph.bitmapIndex + (sourcePixel >> 1)];
+                const shade = sourcePixel & 1 ? packed & 0x0f : packed >> 4;
+                if (shade === 0) continue;
+                pixels.push(`<rect x="${glyphX + column}" y="${glyphY + row}" width="1" height="1" fill="#fff" fill-opacity="${(shade / 15).toFixed(3)}"/>`);
+            }
+        }
+        logicalX += glyph.advance;
+    }
+    return pixels.join('');
 }
 
 function makeFrame(index) {
     const phase = index / (frameCount - 1);
     const triangle = phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
-    const smooth = triangle * triangle * (3 - 2 * triangle);
-    const psi = minPsi + smooth * (maxPsi - minPsi);
+    const psi = minPsi + smoothstep(triangle) * (maxPsi - minPsi);
     const progress = (psi - minPsi) / (maxPsi - minPsi);
     const currentDeg = startDeg + progress * (endDeg - startDeg);
-    const cursorInner = polar(currentDeg, 177);
-    const cursorOuter = polar(currentDeg, 222);
-    const activeEnd = Math.max(startDeg + 1, currentDeg);
-    const parts = [];
+    const cursorInner = polar(currentDeg, cursorInnerRadius);
+    const cursorOuter = polar(currentDeg, cursorOuterRadius);
+    const color = boostColor(psi);
+    const arc = currentDeg > startDeg
+        ? `<path d="${pathForArc(startDeg, currentDeg, arcRadius)}" fill="none" stroke="${color}" stroke-width="${arcWidth}"/>`
+        : '';
 
-    parts.push('<rect width="466" height="466" fill="#000000"/>');
-    parts.push(`<path d="${pathForArc(startDeg, endDeg, radius)}" fill="none" stroke="#262626" stroke-width="24"/>`);
-
-    for (let angle = startDeg; angle < endDeg; angle += 5) {
-        const tickProgress = (angle - startDeg) / (endDeg - startDeg);
-        const major = Math.round(angle - startDeg) % 25 === 0;
-        const inner = major ? 171 : 181;
-        const outer = 201;
-        const a = polar(angle, inner);
-        const b = polar(angle, outer);
-        const visible = angle <= currentDeg;
-        parts.push(`<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${visible ? colorForProgress(tickProgress) : '#666666'}" stroke-width="${major ? 5 : 2}" stroke-linecap="round"/>`);
-    }
-
-    for (let psiLabel = -15; psiLabel <= 30; psiLabel += 5) {
-        const labelProgress = (psiLabel - minPsi) / (maxPsi - minPsi);
-        const labelAngle = startDeg + labelProgress * (endDeg - startDeg);
-        const label = polar(labelAngle, 145);
-        const labelColor = labelProgress <= progress ? colorForProgress(labelProgress) : '#a0a0a0';
-        parts.push(text(psiLabel, label.x.toFixed(1), (label.y + 6).toFixed(1), 18, labelColor));
-    }
-
-    if (currentDeg > startDeg) {
-        parts.push(`<path d="${pathForArc(startDeg, activeEnd, radius)}" fill="none" stroke="${colorForProgress(progress)}" stroke-width="24" stroke-linecap="round"/>`);
-    }
-    parts.push(`<line x1="${cursorInner.x.toFixed(1)}" y1="${cursorInner.y.toFixed(1)}" x2="${cursorOuter.x.toFixed(1)}" y2="${cursorOuter.y.toFixed(1)}" stroke="${colorForProgress(progress)}" stroke-width="14" stroke-linecap="round"/>`);
-    parts.push(text(Math.round(psi), centerX, centerY + 25, 92));
-    parts.push(text('PSI', centerX, centerY + 62, 25, '#ffffff'));
-    parts.push(text('CIVIC', centerX, centerY + 126, 24, '#bfc4ca'));
-
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join('')}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  ${arc}
+  <line x1="${cursorInner.x.toFixed(2)}" y1="${cursorInner.y.toFixed(2)}" x2="${cursorOuter.x.toFixed(2)}" y2="${cursorOuter.y.toFixed(2)}" stroke="${color}" stroke-width="8" stroke-linecap="round"/>
+  ${valuePixels(psi)}
+</svg>`;
 }
 
 fs.rmSync(frameDir, { recursive: true, force: true });
 fs.mkdirSync(frameDir, { recursive: true });
+
+// The captured prebaked visual is in the controller-native orientation. The
+// physical UI rotates that layout counter-clockwise, exactly as the firmware's
+// rotated glyph path does.
+run('magick', [staticGauge, '-rotate', '-90', rotatedBase]);
 const framePaths = [];
 for (let index = 0; index < frameCount; index += 1) {
-    const framePath = path.join(frameDir, `frame-${String(index).padStart(2, '0')}.svg`);
-    fs.writeFileSync(framePath, makeFrame(index));
-    framePaths.push(framePath);
+    const frameBase = path.join(frameDir, `frame-${String(index).padStart(3, '0')}`);
+    const svgPath = `${frameBase}.svg`;
+    const pngPath = `${frameBase}.png`;
+    fs.writeFileSync(svgPath, makeFrame(index));
+    run('magick', [
+        rotatedBase,
+        '-background', 'none', svgPath,
+        '-compose', 'over', '-composite', pngPath,
+    ]);
+    framePaths.push(pngPath);
 }
 
-const result = spawnSync('magick', [
+run('magick', [
     '-background', 'black',
     '-density', '144',
     ...framePaths,
     '-resize', '466x466',
-    '-set', 'delay', '8',
+    '-set', 'delay', String(frameDelay),
     '-loop', '0',
+    '-layers', 'Optimize',
     output,
-], { stdio: 'inherit', shell: false });
+]);
 
 fs.rmSync(frameDir, { recursive: true, force: true });
-if (result.status !== 0) process.exit(result.status || 1);
