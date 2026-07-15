@@ -8,6 +8,7 @@ Status: Verified by hardware observation
 - 60 Hz schedule using a 16,667 us frame period.
 - Non-overlapping 16x16 display tiles.
 - Prebaked 541-state arc and cursor cache.
+- Build-time zlib asset loaded and CRC-validated into PSRAM at startup.
 - Maximum measured diagnostic frame: 11.64 ms.
 - Diagnostic telemetry is disabled for normal use.
 

@@ -2,6 +2,8 @@
 #include <Arduino_GFX_Library.h>
 #include "Arduino_DriveBus_Library.h"
 #include "pin_config.h"
+#include "prebaked_cache_format.h"
+#include "prebaked_gauge_cache.h"
 #include "prebaked_visuals.h"
 #include <Wire.h>
 #include <math.h>
@@ -10,10 +12,12 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include <esp_rom_sys.h>
+#include <esp32s3/rom/miniz.h>
 
 #define ENABLE_PERF_TELEMETRY 0
 #define ENABLE_RENDER_DIAGNOSTICS 0
 #define DUMP_PREBAKED_FRAMES 0
+#define DUMP_BAKED_CACHE 0
 
 extern "C"
 {
@@ -48,6 +52,7 @@ static lv_color_t *composited_frame = nullptr;
 static bool prebaked_enabled = false;
 static bool prebaked_force_full = true;
 static bool gauge_restore_pending = false;
+static bool startup_splash_visible = false;
 
 #if ENABLE_RENDER_DIAGNOSTICS
 static uint32_t diagnostic_flush_count = 0;
@@ -266,6 +271,7 @@ static BakedCursorPixel *baked_cursor_pixels = nullptr;
 static uint8_t *baked_arc_tile_masks = nullptr;
 static uint32_t baked_arc_command_count = 0;
 static uint32_t baked_cursor_pixel_count = 0;
+static uint8_t *prebaked_cache_storage = nullptr;
 static lv_area_t previous_cursor_area = {0, 0, -1, -1};
 
 struct PrebakedValueGlyph {
@@ -1084,6 +1090,111 @@ lv_area_t apply_baked_cursor_state(uint16_t state_index)
     return state.cursor_area;
 }
 
+bool load_prebaked_gauge_cache()
+{
+    if (PREBAKED_GAUGE_CACHE_RAW_SIZE < sizeof(PrebakedCacheHeader)) {
+        return false;
+    }
+
+    prebaked_cache_storage = static_cast<uint8_t *>(heap_caps_malloc(
+        PREBAKED_GAUGE_CACHE_RAW_SIZE,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (prebaked_cache_storage == nullptr) return false;
+
+    tinfl_decompressor *decompressor =
+        static_cast<tinfl_decompressor *>(heap_caps_malloc(
+            sizeof(tinfl_decompressor),
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (decompressor == nullptr) {
+        heap_caps_free(prebaked_cache_storage);
+        prebaked_cache_storage = nullptr;
+        return false;
+    }
+
+    tinfl_init(decompressor);
+    size_t compressed_size = PREBAKED_GAUGE_CACHE_ZLIB_SIZE;
+    size_t uncompressed_size = PREBAKED_GAUGE_CACHE_RAW_SIZE;
+    const tinfl_status status = tinfl_decompress(
+        decompressor,
+        PREBAKED_GAUGE_CACHE_ZLIB,
+        &compressed_size,
+        prebaked_cache_storage,
+        prebaked_cache_storage,
+        &uncompressed_size,
+        TINFL_FLAG_PARSE_ZLIB_HEADER |
+            TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF |
+            TINFL_FLAG_COMPUTE_ADLER32);
+    heap_caps_free(decompressor);
+    if (status != TINFL_STATUS_DONE ||
+        uncompressed_size != PREBAKED_GAUGE_CACHE_RAW_SIZE) {
+        heap_caps_free(prebaked_cache_storage);
+        prebaked_cache_storage = nullptr;
+        return false;
+    }
+
+    const PrebakedCacheHeader &header =
+        *reinterpret_cast<const PrebakedCacheHeader *>(prebaked_cache_storage);
+    const bool header_valid =
+        header.magic == PREBAKED_CACHE_MAGIC &&
+        header.format_version == PREBAKED_CACHE_FORMAT_VERSION &&
+        header.total_size == PREBAKED_GAUGE_CACHE_RAW_SIZE &&
+        header.state_count == BAKED_GAUGE_STATE_COUNT &&
+        header.state_size == sizeof(BakedGaugeState) &&
+        header.tile_mask_bytes == BAKED_TILE_MASK_BYTES &&
+        header.arc_command_size == sizeof(BakedArcCommand) &&
+        header.cursor_pixel_size == sizeof(BakedCursorPixel) &&
+        header.spatial_run_size == sizeof(ArcPixelRun) &&
+        header.spatial_run_count <= UINT16_MAX;
+    const mz_ulong payload_crc = mz_crc32(
+        MZ_CRC32_INIT,
+        prebaked_cache_storage + sizeof(PrebakedCacheHeader),
+        PREBAKED_GAUGE_CACHE_RAW_SIZE - sizeof(PrebakedCacheHeader));
+    if (!header_valid || payload_crc != header.payload_crc32) {
+        heap_caps_free(prebaked_cache_storage);
+        prebaked_cache_storage = nullptr;
+        return false;
+    }
+
+    size_t offset = sizeof(PrebakedCacheHeader);
+    const auto section = [&](size_t bytes) -> uint8_t * {
+        offset = prebaked_cache_align4(offset);
+        if (bytes > PREBAKED_GAUGE_CACHE_RAW_SIZE - offset) return nullptr;
+        uint8_t *result = prebaked_cache_storage + offset;
+        offset += bytes;
+        return result;
+    };
+
+    baked_gauge_states = reinterpret_cast<BakedGaugeState *>(section(
+        header.state_count * header.state_size));
+    baked_arc_tile_masks = section(
+        header.state_count * header.tile_mask_bytes);
+    baked_arc_commands = reinterpret_cast<BakedArcCommand *>(section(
+        header.arc_command_count * header.arc_command_size));
+    baked_cursor_pixels = reinterpret_cast<BakedCursorPixel *>(section(
+        header.cursor_pixel_count * header.cursor_pixel_size));
+    spatial_arc_runs = reinterpret_cast<ArcPixelRun *>(section(
+        header.spatial_run_count * header.spatial_run_size));
+
+    if (baked_gauge_states == nullptr || baked_arc_tile_masks == nullptr ||
+        baked_arc_commands == nullptr || baked_cursor_pixels == nullptr ||
+        spatial_arc_runs == nullptr || offset != header.total_size) {
+        heap_caps_free(prebaked_cache_storage);
+        prebaked_cache_storage = nullptr;
+        baked_gauge_states = nullptr;
+        baked_arc_tile_masks = nullptr;
+        baked_arc_commands = nullptr;
+        baked_cursor_pixels = nullptr;
+        spatial_arc_runs = nullptr;
+        return false;
+    }
+
+    baked_arc_command_count = header.arc_command_count;
+    baked_cursor_pixel_count = header.cursor_pixel_count;
+    spatial_arc_run_count = static_cast<uint16_t>(header.spatial_run_count);
+    prebaked_arc_pixel_count = header.arc_pixel_count;
+    return true;
+}
+
 bool prepare_baked_gauge_states()
 {
     baked_gauge_states = (BakedGaugeState *)heap_caps_calloc(
@@ -1258,6 +1369,109 @@ bool prepare_baked_gauge_states()
     return cache_complete;
 }
 
+#if DUMP_BAKED_CACHE
+void write_cache_bytes(const void *source, size_t length)
+{
+    const uint8_t *bytes = static_cast<const uint8_t *>(source);
+    size_t written = 0;
+    while (written < length) {
+        const size_t chunk = LV_MIN(length - written, size_t(16384));
+        const size_t result = Serial.write(bytes + written, chunk);
+        if (result == 0) {
+            delay(1);
+            continue;
+        }
+        written += result;
+        yield();
+    }
+}
+
+void dump_baked_cache()
+{
+    const size_t state_bytes =
+        BAKED_GAUGE_STATE_COUNT * sizeof(BakedGaugeState);
+    const size_t tile_mask_bytes =
+        BAKED_GAUGE_STATE_COUNT * BAKED_TILE_MASK_BYTES;
+    const size_t arc_command_bytes =
+        baked_arc_command_count * sizeof(BakedArcCommand);
+    const size_t cursor_pixel_bytes =
+        baked_cursor_pixel_count * sizeof(BakedCursorPixel);
+    const size_t spatial_run_bytes =
+        spatial_arc_run_count * sizeof(ArcPixelRun);
+
+    size_t total_size = sizeof(PrebakedCacheHeader);
+    const auto include_section = [&total_size](size_t bytes) {
+        total_size = prebaked_cache_align4(total_size);
+        total_size += bytes;
+    };
+    include_section(state_bytes);
+    include_section(tile_mask_bytes);
+    include_section(arc_command_bytes);
+    include_section(cursor_pixel_bytes);
+    include_section(spatial_run_bytes);
+
+    const uint8_t zero_padding[4] = {};
+    mz_ulong crc = MZ_CRC32_INIT;
+    size_t crc_offset = sizeof(PrebakedCacheHeader);
+    const auto crc_section = [&](const void *data, size_t bytes) {
+        const size_t aligned = prebaked_cache_align4(crc_offset);
+        const size_t padding = aligned - crc_offset;
+        if (padding != 0) {
+            crc = mz_crc32(crc, zero_padding, padding);
+            crc_offset += padding;
+        }
+        crc = mz_crc32(
+            crc, static_cast<const unsigned char *>(data), bytes);
+        crc_offset += bytes;
+    };
+    crc_section(baked_gauge_states, state_bytes);
+    crc_section(baked_arc_tile_masks, tile_mask_bytes);
+    crc_section(baked_arc_commands, arc_command_bytes);
+    crc_section(baked_cursor_pixels, cursor_pixel_bytes);
+    crc_section(spatial_arc_runs, spatial_run_bytes);
+
+    PrebakedCacheHeader header = {
+        PREBAKED_CACHE_MAGIC,
+        PREBAKED_CACHE_FORMAT_VERSION,
+        static_cast<uint32_t>(total_size),
+        static_cast<uint32_t>(crc),
+        BAKED_GAUGE_STATE_COUNT,
+        sizeof(BakedGaugeState),
+        BAKED_TILE_MASK_BYTES,
+        baked_arc_command_count,
+        sizeof(BakedArcCommand),
+        baked_cursor_pixel_count,
+        sizeof(BakedCursorPixel),
+        spatial_arc_run_count,
+        sizeof(ArcPixelRun),
+        prebaked_arc_pixel_count,
+    };
+
+    Serial.printf("BGCACHE %lu\n", (unsigned long)total_size);
+    Serial.flush();
+    write_cache_bytes(&header, sizeof(header));
+
+    size_t write_offset = sizeof(header);
+    const auto write_section = [&](const void *data, size_t bytes) {
+        const size_t aligned = prebaked_cache_align4(write_offset);
+        const size_t padding = aligned - write_offset;
+        if (padding != 0) {
+            write_cache_bytes(zero_padding, padding);
+            write_offset += padding;
+        }
+        write_cache_bytes(data, bytes);
+        write_offset += bytes;
+    };
+    write_section(baked_gauge_states, state_bytes);
+    write_section(baked_arc_tile_masks, tile_mask_bytes);
+    write_section(baked_arc_commands, arc_command_bytes);
+    write_section(baked_cursor_pixels, cursor_pixel_bytes);
+    write_section(spatial_arc_runs, spatial_run_bytes);
+    Serial.print("\nENDBGCACHE\n");
+    Serial.flush();
+}
+#endif
+
 // =========================
 // Display flush
 // =========================
@@ -1271,7 +1485,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
         (uint32_t)(area->y2 - area->y1 + 1);
 #endif
     copy_area_to_frame(composited_frame, area, color_p);
-    flush_composited_area(*area);
+    if (!startup_splash_visible) flush_composited_area(*area);
 
     lv_disp_flush_ready(disp);
 }
@@ -2021,6 +2235,7 @@ bool update_startup_sequence(uint32_t now)
     if (startup_phase == STARTUP_SPLASH) {
         if (elapsed < STARTUP_SPLASH_MS) return true;
 
+        startup_splash_visible = false;
         memcpy(composited_frame, static_frame,
                LCD_WIDTH * LCD_HEIGHT * sizeof(lv_color_t));
         flush_composited_area({0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1});
@@ -2098,6 +2313,11 @@ void setup()
         while (true) delay(1000);
     }
 
+    display_prebaked_visual(PREBAKED_STARTUP_VISUAL);
+    gfx->Display_Brightness(screen_brightness);
+    startup_splash_visible = true;
+    startup_phase_started_ms = millis();
+
     // LVGL
     lv_init();
 #if ENABLE_RENDER_DIAGNOSTICS
@@ -2133,19 +2353,11 @@ void setup()
     lv_obj_invalidate(lv_scr_act());
     lv_refr_now(NULL);
 
-    // Present the splash before generating the heavy gauge caches. The five
-    // second startup interval includes this work, keeping the AMOLED active
-    // instead of showing a black screen while the renderer is prepared.
-    display_prebaked_visual(PREBAKED_STARTUP_VISUAL);
-    gfx->Display_Brightness(screen_brightness);
-    startup_phase_started_ms = millis();
-
     apply_prebaked_visual(static_frame, PREBAKED_GAUGE_VISUAL);
     memcpy(composited_frame, static_frame,
            LCD_WIDTH * LCD_HEIGHT * sizeof(lv_color_t));
 
-    if (!prepare_prebaked_arc_pixels() ||
-        !prepare_baked_gauge_states() ||
+    if (!load_prebaked_gauge_cache() ||
         !prepare_prebaked_value_glyphs()) {
         Serial.println("Prebaked renderer: asset preparation failed");
         while (true) delay(1000);
@@ -2158,6 +2370,10 @@ void setup()
                   (unsigned long)baked_cursor_pixel_count,
                   (unsigned)VALUE_GLYPH_COUNT,
                   (unsigned long)(ESP.getFreePsram() / 1024UL));
+#if DUMP_BAKED_CACHE
+    dump_baked_cache();
+    while (true) delay(1000);
+#endif
 }
 
 void loop()
