@@ -23,6 +23,7 @@
 extern "C"
 {
 LV_FONT_DECLARE(boost_font_90_bold);
+LV_FONT_DECLARE(psi_font_32_bold);
 }
 
 // =========================
@@ -768,7 +769,7 @@ void prepare_static_gauge_frame()
             center.x, center.y, boost_color(reference_psi));
     }
     draw_static_text(
-        "BAR", &lv_font_montserrat_32, 233, 299, lv_color_white());
+        "BAR", &psi_font_32_bold, 233, 299, lv_color_white());
 }
 
 void display_prebaked_visual(const PrebakedVisual &visual)
