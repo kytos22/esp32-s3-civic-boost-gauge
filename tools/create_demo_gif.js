@@ -22,6 +22,7 @@ const valueLogicalY = 176;
 const valueLogicalWidth = 250;
 const valueLineHeight = 66;
 const valueBaseline = 1;
+const valueDecimalAnchorX = Math.floor(width / 2) + 20;
 const frameCount = 601;
 const frameDelay = 2;
 const headerSize = 14 * 4;
@@ -243,6 +244,15 @@ function applyValue(pixels, glyphs, value) {
     const text = normalized.toFixed(1);
     const textWidth = [...text].reduce((sum, character) => sum + glyphs[character].advance, 0);
     let logicalX = valueLogicalX + Math.trunc((valueLogicalWidth - textWidth) / 2);
+    const decimalIndex = text.indexOf('.');
+    if (decimalIndex >= 0) {
+        const integerWidth = [...text.slice(0, decimalIndex)]
+            .reduce((sum, character) => sum + glyphs[character].advance, 0);
+        const decimal = glyphs['.'];
+        const decimalCursorX = valueDecimalAnchorX - decimal.offsetX -
+            Math.floor(decimal.boxWidth / 2);
+        logicalX = decimalCursorX - integerWidth;
+    }
 
     for (const character of text) {
         const glyph = glyphs[character];

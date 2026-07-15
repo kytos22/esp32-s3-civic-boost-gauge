@@ -290,6 +290,7 @@ static const int VALUE_LOGICAL_WIDTH = 250;
 static const int VALUE_LOGICAL_X = (LCD_WIDTH - VALUE_LOGICAL_WIDTH) / 2;
 static const int VALUE_LOGICAL_Y =
     (LCD_HEIGHT - VALUE_FONT_LINE_HEIGHT) / 2 - 24;
+static const int VALUE_DECIMAL_ANCHOR_X = LCD_WIDTH / 2 + 20;
 static const lv_area_t VALUE_PHYSICAL_AREA = {
     (lv_coord_t)(LCD_HEIGHT - 1 -
                  (VALUE_LOGICAL_Y + VALUE_FONT_LINE_HEIGHT - 1)),
@@ -615,15 +616,30 @@ void render_prebaked_value(const char *text, bool force)
     restore_frame_area(VALUE_PHYSICAL_AREA);
 
     int text_width = 0;
+    int integer_width = 0;
+    bool before_decimal = true;
     for (const char *cursor = text; *cursor; ++cursor) {
         const PrebakedValueGlyph *glyph = find_value_glyph(*cursor);
         if (glyph != nullptr) {
-            text_width += lv_font_get_glyph_width(
+            int advance = lv_font_get_glyph_width(
                 &boost_font_90_bold, *cursor, cursor[1]);
+            text_width += advance;
+            if (*cursor == '.') {
+                before_decimal = false;
+            } else if (before_decimal) {
+                integer_width += advance;
+            }
         }
     }
 
     int logical_x = VALUE_LOGICAL_X + (VALUE_LOGICAL_WIDTH - text_width) / 2;
+    const PrebakedValueGlyph *decimal_glyph = find_value_glyph('.');
+    if (strchr(text, '.') != nullptr && decimal_glyph != nullptr) {
+        const int decimal_cursor_x = VALUE_DECIMAL_ANCHOR_X -
+            decimal_glyph->descriptor.ofs_x -
+            decimal_glyph->descriptor.box_w / 2;
+        logical_x = decimal_cursor_x - integer_width;
+    }
     const lv_color_t white = lv_color_white();
     for (const char *cursor = text; *cursor; ++cursor) {
         const PrebakedValueGlyph *glyph = find_value_glyph(*cursor);
