@@ -29,8 +29,9 @@ const valueLogicalY = 176;
 const valueLogicalWidth = 250;
 const valueLineHeight = 66;
 const valueBaseline = 1;
-const frameCount = 151;
-const frameDelay = 8;
+const frameCount = 301;
+const frameDelay = 4;
+const cursorColor = '#f44336';
 
 function run(command, args) {
     const result = spawnSync(command, args, { stdio: 'inherit', shell: false });
@@ -112,6 +113,7 @@ function valuePixels(value) {
     const text = value.toFixed(1);
     const textWidth = [...text].reduce((sum, character) => sum + glyphs[character].advance, 0);
     let logicalX = valueLogicalX + Math.floor((valueLogicalWidth - textWidth) / 2);
+    const textStartX = logicalX;
     const pixels = [];
 
     for (const character of text) {
@@ -129,13 +131,20 @@ function valuePixels(value) {
         }
         logicalX += glyph.advance;
     }
-    return pixels.join('');
+    // ImageMagick drops the tiny alpha-only LVGL minus glyph in some SVG
+    // frames. Preserve its exact 25x13 bounding box for negative pressures.
+    const negativeSign = value < 0
+        ? `<rect x="${textStartX + 6}" y="${valueLogicalY + 35}" width="25" height="13" fill="#fff"/>`
+        : '';
+    return `${negativeSign}${pixels.join('')}`;
 }
 
 function makeFrame(index) {
     const phase = index / (frameCount - 1);
     const triangle = phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
-    const psi = minPsi + smoothstep(triangle) * (maxPsi - minPsi);
+    // Keep the value, cursor angle and revealed arc in lockstep. The GIF is a
+    // visual demo, so its sweep is deliberately linear in both directions.
+    const psi = minPsi + triangle * (maxPsi - minPsi);
     const progress = (psi - minPsi) / (maxPsi - minPsi);
     const currentDeg = startDeg + progress * (endDeg - startDeg);
     const cursorInner = polar(currentDeg, cursorInnerRadius);
@@ -147,7 +156,7 @@ function makeFrame(index) {
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   ${arc}
-  <line x1="${cursorInner.x.toFixed(2)}" y1="${cursorInner.y.toFixed(2)}" x2="${cursorOuter.x.toFixed(2)}" y2="${cursorOuter.y.toFixed(2)}" stroke="${color}" stroke-width="8" stroke-linecap="round"/>
+  <line x1="${cursorInner.x.toFixed(2)}" y1="${cursorInner.y.toFixed(2)}" x2="${cursorOuter.x.toFixed(2)}" y2="${cursorOuter.y.toFixed(2)}" stroke="${cursorColor}" stroke-width="8" stroke-linecap="round"/>
   ${valuePixels(psi)}
 </svg>`;
 }
@@ -159,7 +168,6 @@ fs.mkdirSync(frameDir, { recursive: true });
 // physical UI rotates that layout counter-clockwise, exactly as the firmware's
 // rotated glyph path does.
 run('magick', [staticGauge, '-rotate', '-90', rotatedBase]);
-const framePaths = [];
 for (let index = 0; index < frameCount; index += 1) {
     const frameBase = path.join(frameDir, `frame-${String(index).padStart(3, '0')}`);
     const svgPath = `${frameBase}.svg`;
@@ -170,13 +178,12 @@ for (let index = 0; index < frameCount; index += 1) {
         '-background', 'none', svgPath,
         '-compose', 'over', '-composite', pngPath,
     ]);
-    framePaths.push(pngPath);
 }
 
 run('magick', [
     '-background', 'black',
     '-density', '144',
-    ...framePaths,
+    path.join(frameDir, 'frame-*.png'),
     '-resize', '466x466',
     '-set', 'delay', String(frameDelay),
     '-loop', '0',
