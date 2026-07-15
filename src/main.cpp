@@ -5,6 +5,7 @@
 #include "prebaked_cache_format.h"
 #include "prebaked_gauge_cache.h"
 #include "prebaked_visuals.h"
+#include <Preferences.h>
 #include <Wire.h>
 #include <math.h>
 #include <stdint.h>
@@ -110,6 +111,8 @@ lv_obj_t *brightness_label;
 lv_obj_t *brightness_slider;
 lv_obj_t *zero_calibrate_button;
 lv_obj_t *zero_calibrate_label;
+lv_obj_t *unit_psi_button;
+lv_obj_t *unit_bar_button;
 lv_obj_t *indicator_outline;
 lv_obj_t *indicator_cursor;
 lv_obj_t *arc_fill;
@@ -128,9 +131,17 @@ lv_point_t indicator_cursor_points[2];
 // Config presión
 // =========================
 
-// Rango visual del gauge
+enum PressureUnit : uint8_t {
+    PRESSURE_UNIT_PSI = 0,
+    PRESSURE_UNIT_BAR = 1
+};
+
+// Rangos visuales del gauge
 static const float BOOST_MIN_PSI = -15.0f;
 static const float BOOST_MAX_PSI =  30.0f;
+static const float BOOST_MIN_BAR = -1.0f;
+static const float BOOST_MAX_BAR =  2.0f;
+static const float PSI_PER_BAR = 14.5037738f;
 
 // Sensibilidad de la tabla del sensor alimentado a 5 V y conectado
 // directamente al ADC: 0.1 V = -15 PSI, 1.0 V = 0 PSI y 3.33 V = 30 PSI.
@@ -141,6 +152,7 @@ static const float SENSOR_DEFAULT_ZERO_MV = 1000.0f;
 static const float SENSOR_MIN_VALID_ZERO_MV = 600.0f;
 static const float SENSOR_MAX_VALID_ZERO_MV = 1300.0f;
 static const float SENSOR_ZERO_DEADBAND_PSI = 0.25f;
+static const float SENSOR_ZERO_DEADBAND_BAR = 0.02f;
 static const float SENSOR_FILTER_ALPHA = 0.18f;
 static const uint8_t SENSOR_SAMPLE_COUNT = 8;
 static const uint8_t SENSOR_CALIBRATION_SAMPLES = 64;
@@ -189,7 +201,11 @@ static const uint32_t SERIAL_UPDATE_MS = 200;
 static const uint32_t PERF_UPDATE_MS = 2000;
 #endif
 
-float filtered_bar = 0.0f;
+static PressureUnit pressure_unit = PRESSURE_UNIT_PSI;
+static float display_min_pressure = BOOST_MIN_PSI;
+static float display_max_pressure = BOOST_MAX_PSI;
+static float display_zero_deadband = SENSOR_ZERO_DEADBAND_PSI;
+float filtered_pressure = 0.0f;
 static uint16_t last_sensor_mv = 0;
 static uint16_t last_sensor_sample_mv = 0;
 static float filtered_sensor_mv = SENSOR_DEFAULT_ZERO_MV;
@@ -197,6 +213,8 @@ static bool sensor_filter_initialized = false;
 static float sensor_vacuum_mv = SENSOR_DEFAULT_ZERO_MV - SENSOR_VACUUM_SPAN_MV;
 static float sensor_atmosphere_mv = SENSOR_DEFAULT_ZERO_MV;
 static float sensor_30_psi_mv = SENSOR_DEFAULT_ZERO_MV + SENSOR_30_PSI_SPAN_MV;
+static float display_sensor_min_mv = sensor_vacuum_mv;
+static float display_sensor_max_mv = sensor_30_psi_mv;
 static lv_timer_t *zero_feedback_timer = nullptr;
 
 enum GaugeMode {
@@ -215,7 +233,7 @@ GaugeMode gauge_mode = GAUGE_MODE_LIVE;
 StartupPhase startup_phase = STARTUP_SPLASH;
 uint32_t show_started_ms = 0;
 uint32_t startup_phase_started_ms = 0;
-float startup_sweep_target_psi = 0.0f;
+float startup_sweep_target_pressure = 0.0f;
 uint8_t screen_brightness = 191; // 75% of the display brightness range
 bool brightness_menu_open = false;
 bool suppress_show_click = false;
@@ -318,6 +336,50 @@ float mapf(float x, float in_min, float in_max, float out_min, float out_max)
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
+void configure_pressure_unit(PressureUnit unit)
+{
+    pressure_unit = unit == PRESSURE_UNIT_BAR
+        ? PRESSURE_UNIT_BAR
+        : PRESSURE_UNIT_PSI;
+    if (pressure_unit == PRESSURE_UNIT_BAR) {
+        display_min_pressure = BOOST_MIN_BAR;
+        display_max_pressure = BOOST_MAX_BAR;
+        display_zero_deadband = SENSOR_ZERO_DEADBAND_BAR;
+        display_sensor_min_mv = sensor_atmosphere_mv -
+            SENSOR_VACUUM_SPAN_MV * PSI_PER_BAR / -BOOST_MIN_PSI;
+        display_sensor_max_mv = sensor_atmosphere_mv +
+            SENSOR_30_PSI_SPAN_MV *
+            (BOOST_MAX_BAR * PSI_PER_BAR) / BOOST_MAX_PSI;
+    } else {
+        display_min_pressure = BOOST_MIN_PSI;
+        display_max_pressure = BOOST_MAX_PSI;
+        display_zero_deadband = SENSOR_ZERO_DEADBAND_PSI;
+        display_sensor_min_mv = sensor_vacuum_mv;
+        display_sensor_max_mv = sensor_30_psi_mv;
+    }
+}
+
+void load_pressure_unit()
+{
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", true)) {
+        configure_pressure_unit(PRESSURE_UNIT_PSI);
+        return;
+    }
+    uint8_t saved_unit = preferences.getUChar("unit", PRESSURE_UNIT_PSI);
+    preferences.end();
+    configure_pressure_unit(
+        saved_unit == PRESSURE_UNIT_BAR ? PRESSURE_UNIT_BAR : PRESSURE_UNIT_PSI);
+}
+
+void save_pressure_unit()
+{
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", false)) return;
+    preferences.putUChar("unit", (uint8_t)pressure_unit);
+    preferences.end();
+}
+
 lv_color_t boost_color(float psi_value);
 void include_dirty_area(lv_area_t &destination, const lv_area_t &source);
 
@@ -362,17 +424,28 @@ bool calibrate_pressure_zero()
     filtered_sensor_mv = measured_zero_mv;
     sensor_filter_initialized = true;
     last_sensor_mv = (uint16_t)lroundf(measured_zero_mv);
+    configure_pressure_unit(pressure_unit);
     Serial.printf("Zero calibrated: %.1f mV\n", measured_zero_mv);
     return true;
 }
 
-float gauge_angle_for_psi(float psi_value)
+float gauge_angle_for_range(float value, float minimum, float maximum)
 {
-    if (psi_value <= 0.0f) {
-        return mapf(psi_value, BOOST_MIN_PSI, 0.0f, GAUGE_START_DEG, GAUGE_ZERO_DEG);
+    if (value <= 0.0f) {
+        return mapf(value, minimum, 0.0f, GAUGE_START_DEG, GAUGE_ZERO_DEG);
     }
 
-    return mapf(psi_value, 0.0f, BOOST_MAX_PSI, GAUGE_ZERO_DEG, GAUGE_END_DEG);
+    return mapf(value, 0.0f, maximum, GAUGE_ZERO_DEG, GAUGE_END_DEG);
+}
+
+float gauge_angle_for_pressure(float value)
+{
+    return gauge_angle_for_range(value, display_min_pressure, display_max_pressure);
+}
+
+float gauge_angle_for_psi(float psi_value)
+{
+    return gauge_angle_for_range(psi_value, BOOST_MIN_PSI, BOOST_MAX_PSI);
 }
 
 bool area_is_valid(const lv_area_t &area)
@@ -544,6 +617,158 @@ void apply_prebaked_visual(lv_color_t *frame, const PrebakedVisual &visual)
                length * sizeof(uint16_t));
         color_index += length;
     }
+}
+
+int font_text_width(const lv_font_t *font, const char *text)
+{
+    int width = 0;
+    for (const char *cursor = text; *cursor; ++cursor) {
+        width += lv_font_get_glyph_width(font, *cursor, cursor[1]);
+    }
+    return width;
+}
+
+void clear_static_logical_rect(int x1, int y1, int x2, int y2)
+{
+    if (static_frame == nullptr) return;
+    x1 = LV_MAX(0, x1);
+    y1 = LV_MAX(0, y1);
+    x2 = LV_MIN(LCD_WIDTH - 1, x2);
+    y2 = LV_MIN(LCD_HEIGHT - 1, y2);
+    for (int logical_y = y1; logical_y <= y2; ++logical_y) {
+        for (int logical_x = x1; logical_x <= x2; ++logical_x) {
+            lv_point_t point = rotate_design_point_clockwise(
+                (lv_coord_t)logical_x, (lv_coord_t)logical_y);
+            static_frame[point.y * LCD_WIDTH + point.x] = lv_color_black();
+        }
+    }
+}
+
+uint8_t glyph_pixel_opacity(const uint8_t *bitmap, uint32_t pixel,
+                            uint8_t bits_per_pixel)
+{
+    if (bits_per_pixel == 4) {
+        uint8_t packed = bitmap[pixel >> 1];
+        uint8_t shade = (pixel & 1) ? packed & 0x0F : packed >> 4;
+        return shade * 17;
+    }
+    if (bits_per_pixel == 2) {
+        uint8_t shift = 6 - (pixel & 3) * 2;
+        return ((bitmap[pixel >> 2] >> shift) & 0x03) * 85;
+    }
+    if (bits_per_pixel == 1) {
+        return bitmap[pixel >> 3] & (0x80 >> (pixel & 7)) ? 255 : 0;
+    }
+    return 0;
+}
+
+void draw_static_text(const char *text, const lv_font_t *font,
+                      int center_x, int center_y, lv_color_t color)
+{
+    if (static_frame == nullptr) return;
+    int logical_x = center_x - font_text_width(font, text) / 2;
+    const int logical_y = center_y - font->line_height / 2;
+
+    for (const char *cursor = text; *cursor; ++cursor) {
+        lv_font_glyph_dsc_t descriptor;
+        if (!lv_font_get_glyph_dsc(font, &descriptor, *cursor, cursor[1])) {
+            continue;
+        }
+        const uint8_t *bitmap = lv_font_get_glyph_bitmap(
+            descriptor.resolved_font, *cursor);
+        if (bitmap != nullptr) {
+            const int glyph_x = logical_x + descriptor.ofs_x;
+            const int glyph_y = logical_y +
+                (font->line_height - font->base_line) -
+                descriptor.box_h - descriptor.ofs_y;
+            for (uint16_t row = 0; row < descriptor.box_h; ++row) {
+                for (uint16_t column = 0; column < descriptor.box_w; ++column) {
+                    uint32_t source_pixel = row * descriptor.box_w + column;
+                    uint8_t opacity = glyph_pixel_opacity(
+                        bitmap, source_pixel, descriptor.bpp);
+                    if (opacity == 0) continue;
+                    lv_point_t point = rotate_design_point_clockwise(
+                        (lv_coord_t)(glyph_x + column),
+                        (lv_coord_t)(glyph_y + row));
+                    if ((unsigned)point.x >= LCD_WIDTH ||
+                        (unsigned)point.y >= LCD_HEIGHT) continue;
+                    lv_color_t &pixel =
+                        static_frame[point.y * LCD_WIDTH + point.x];
+                    pixel = opacity == 255
+                        ? color
+                        : lv_color_mix(color, pixel, opacity);
+                }
+            }
+        }
+        logical_x += lv_font_get_glyph_width(font, *cursor, cursor[1]);
+    }
+}
+
+lv_point_t logical_label_center(float value, float minimum, float maximum)
+{
+    float radians = gauge_angle_for_range(value, minimum, maximum) * DEG_TO_RAD;
+    int native_x = CENTER_X + (int)lroundf(cosf(radians) * LABEL_RADIUS);
+    int native_y = CENTER_Y + (int)lroundf(sinf(radians) * LABEL_RADIUS);
+    return {
+        (lv_coord_t)native_y,
+        (lv_coord_t)(LCD_HEIGHT - 1 - native_x)
+    };
+}
+
+void clear_static_label(const char *text, float value,
+                        float minimum, float maximum)
+{
+    lv_point_t center = logical_label_center(value, minimum, maximum);
+    const int half_width = font_text_width(&lv_font_montserrat_18, text) / 2 + 2;
+    const int half_height = lv_font_montserrat_18.line_height / 2 + 2;
+    clear_static_logical_rect(
+        center.x - half_width, center.y - half_height,
+        center.x + half_width, center.y + half_height);
+}
+
+void prepare_static_gauge_frame()
+{
+    apply_prebaked_visual(static_frame, PREBAKED_GAUGE_VISUAL);
+    if (pressure_unit == PRESSURE_UNIT_PSI) return;
+
+    static const float psi_label_values[] = {
+        -15.0f, -10.0f, -5.0f, 0.0f, 5.0f,
+        10.0f, 15.0f, 20.0f, 25.0f, 30.0f
+    };
+    static const char *psi_label_text[] = {
+        "-15", "-10", "-5", "0", "5", "10", "15", "20", "25", "30"
+    };
+    for (uint8_t index = 0;
+         index < sizeof(psi_label_values) / sizeof(psi_label_values[0]);
+         ++index) {
+        clear_static_label(
+            psi_label_text[index], psi_label_values[index],
+            BOOST_MIN_PSI, BOOST_MAX_PSI);
+    }
+    clear_static_logical_rect(195, 276, 270, 320);
+
+    static const float bar_label_values[] = {
+        -1.0f, -0.5f, 0.0f, 0.5f, 1.0f, 1.5f, 2.0f
+    };
+    static const char *bar_label_text[] = {
+        "-1", "-0.5", "0", "0.5", "1", "1.5", "2"
+    };
+    for (uint8_t index = 0;
+         index < sizeof(bar_label_values) / sizeof(bar_label_values[0]);
+         ++index) {
+        lv_point_t center = logical_label_center(
+            bar_label_values[index], BOOST_MIN_BAR, BOOST_MAX_BAR);
+        float reference_psi = bar_label_values[index] <= 0.0f
+            ? mapf(bar_label_values[index], BOOST_MIN_BAR, 0.0f,
+                   BOOST_MIN_PSI, 0.0f)
+            : mapf(bar_label_values[index], 0.0f, BOOST_MAX_BAR,
+                   0.0f, BOOST_MAX_PSI);
+        draw_static_text(
+            bar_label_text[index], &lv_font_montserrat_18,
+            center.x, center.y, boost_color(reference_psi));
+    }
+    draw_static_text(
+        "BAR", &lv_font_montserrat_32, 233, 299, lv_color_white());
 }
 
 void display_prebaked_visual(const PrebakedVisual &visual)
@@ -1669,7 +1894,7 @@ void flush_baked_tile_mask(const uint8_t *tile_mask)
     }
 }
 
-void render_prebaked_gauge(float psi_value, bool update_color)
+void render_prebaked_gauge(float pressure_value, bool update_color)
 {
     static int previous_state_index = -1;
     static uint16_t rendered_color = 0;
@@ -1682,7 +1907,7 @@ void render_prebaked_gauge(float psi_value, bool update_color)
 #endif
 
     int end_tenths = (int)lroundf(
-        (gauge_angle_for_psi(psi_value) - GAUGE_START_DEG) * 10.0f);
+        (gauge_angle_for_pressure(pressure_value) - GAUGE_START_DEG) * 10.0f);
     end_tenths = LV_MAX(0, LV_MIN((int)(GAUGE_SWEEP_DEG * 10.0f), end_tenths));
     const int state_index = LV_MIN(
         BAKED_GAUGE_STATE_COUNT - 1,
@@ -1757,8 +1982,8 @@ void render_prebaked_gauge(float psi_value, bool update_color)
     ++perf_stats.custom_count;
     perf_stats.max_custom_us = LV_MAX(perf_stats.max_custom_us, render_elapsed_us);
     if (render_elapsed_us > 12000) {
-        esp_rom_printf("[slow] psi_x100=%d total=%lu us color=%lu us changed=%u\n",
-                       (int)lroundf(psi_value * 100.0f),
+        esp_rom_printf("[slow] value_x100=%d total=%lu us color=%lu us changed=%u\n",
+                       (int)lroundf(pressure_value * 100.0f),
                        (unsigned long)render_elapsed_us,
                        (unsigned long)color_compose_us,
                        color_changed ? 1U : 0U);
@@ -1966,6 +2191,39 @@ void brightness_step_event(lv_event_t *event)
     update_brightness_label();
 }
 
+void update_pressure_unit_buttons()
+{
+    if (unit_psi_button == nullptr || unit_bar_button == nullptr) return;
+    lv_obj_set_style_bg_color(
+        unit_psi_button,
+        pressure_unit == PRESSURE_UNIT_PSI
+            ? lv_palette_main(LV_PALETTE_RED)
+            : lv_palette_darken(LV_PALETTE_GREY, 3),
+        LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(
+        unit_bar_button,
+        pressure_unit == PRESSURE_UNIT_BAR
+            ? lv_palette_main(LV_PALETTE_RED)
+            : lv_palette_darken(LV_PALETTE_GREY, 3),
+        LV_STATE_DEFAULT);
+}
+
+void pressure_unit_event(lv_event_t *event)
+{
+    PressureUnit selected = (PressureUnit)(intptr_t)lv_event_get_user_data(event);
+    if (selected == pressure_unit) return;
+
+    configure_pressure_unit(selected);
+    save_pressure_unit();
+    prepare_static_gauge_frame();
+    filtered_pressure = 0.0f;
+    rendered_value_text[0] = '\0';
+    prebaked_force_full = true;
+    update_pressure_unit_buttons();
+    Serial.printf("Unit: %s\n",
+                  pressure_unit == PRESSURE_UNIT_BAR ? "BAR" : "PSI");
+}
+
 void zero_feedback_reset(lv_timer_t *timer)
 {
     (void)timer;
@@ -2035,12 +2293,13 @@ void show_mode_event(lv_event_t *event)
     }
 }
 
-float show_boost_psi(uint32_t now)
+float show_boost_pressure(uint32_t now)
 {
     float phase = ((now - show_started_ms) % SHOW_CYCLE_MS) / (float)SHOW_CYCLE_MS;
     float triangle = phase < 0.5f ? phase * 2.0f : (1.0f - phase) * 2.0f;
     float smooth = triangle * triangle * (3.0f - 2.0f * triangle);
-    return mapf(smooth, 0.0f, 1.0f, BOOST_MIN_PSI, BOOST_MAX_PSI);
+    return mapf(
+        smooth, 0.0f, 1.0f, display_min_pressure, display_max_pressure);
 }
 
 void create_ui()
@@ -2081,6 +2340,37 @@ void create_ui()
     lv_obj_set_style_text_color(brightness_label, lv_color_white(), 0);
     lv_obj_set_style_text_font(brightness_label, &lv_font_montserrat_16, 0);
     lv_obj_align(brightness_label, LV_ALIGN_TOP_LEFT, 18, 18);
+
+    unit_psi_button = lv_btn_create(brightness_panel);
+    lv_obj_set_size(unit_psi_button, 105, 44);
+    lv_obj_align(unit_psi_button, LV_ALIGN_TOP_MID, -57, 58);
+    lv_obj_set_ext_click_area(unit_psi_button, 4);
+    lv_obj_set_style_radius(unit_psi_button, 8, 0);
+    lv_obj_set_style_bg_color(
+        unit_psi_button, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
+    lv_obj_add_event_cb(
+        unit_psi_button, pressure_unit_event, LV_EVENT_CLICKED,
+        (void *)(intptr_t)PRESSURE_UNIT_PSI);
+    lv_obj_t *unit_psi_label = lv_label_create(unit_psi_button);
+    lv_label_set_text(unit_psi_label, "PSI");
+    lv_obj_set_style_text_font(unit_psi_label, &lv_font_montserrat_18, 0);
+    lv_obj_center(unit_psi_label);
+
+    unit_bar_button = lv_btn_create(brightness_panel);
+    lv_obj_set_size(unit_bar_button, 105, 44);
+    lv_obj_align(unit_bar_button, LV_ALIGN_TOP_MID, 57, 58);
+    lv_obj_set_ext_click_area(unit_bar_button, 4);
+    lv_obj_set_style_radius(unit_bar_button, 8, 0);
+    lv_obj_set_style_bg_color(
+        unit_bar_button, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
+    lv_obj_add_event_cb(
+        unit_bar_button, pressure_unit_event, LV_EVENT_CLICKED,
+        (void *)(intptr_t)PRESSURE_UNIT_BAR);
+    lv_obj_t *unit_bar_label = lv_label_create(unit_bar_button);
+    lv_label_set_text(unit_bar_label, "BAR");
+    lv_obj_set_style_text_font(unit_bar_label, &lv_font_montserrat_18, 0);
+    lv_obj_center(unit_bar_label);
+    update_pressure_unit_buttons();
 
     brightness_slider = lv_slider_create(brightness_panel);
     lv_obj_set_size(brightness_slider, 190, 22);
@@ -2163,10 +2453,10 @@ void create_ui()
 }
 
 // =========================
-// Sensor -> PSI
+// Sensor -> active pressure unit
 // =========================
 
-float read_boost_psi()
+float read_boost_pressure()
 {
     uint32_t mv_sum = 0;
     for (uint8_t sample = 0; sample < SENSOR_SAMPLE_COUNT; ++sample) {
@@ -2184,19 +2474,19 @@ float read_boost_psi()
     }
     last_sensor_mv = (uint16_t)lroundf(filtered_sensor_mv);
 
-    float psi;
+    float pressure;
     if (last_sensor_mv <= sensor_atmosphere_mv) {
-        psi = mapf(last_sensor_mv,
-                   sensor_vacuum_mv, sensor_atmosphere_mv,
-                   BOOST_MIN_PSI, 0.0f);
+        pressure = mapf(last_sensor_mv,
+                        display_sensor_min_mv, sensor_atmosphere_mv,
+                        display_min_pressure, 0.0f);
     } else {
-        psi = mapf(last_sensor_mv,
-                   sensor_atmosphere_mv, sensor_30_psi_mv,
-                   0.0f, BOOST_MAX_PSI);
+        pressure = mapf(last_sensor_mv,
+                        sensor_atmosphere_mv, display_sensor_max_mv,
+                        0.0f, display_max_pressure);
     }
 
-    if (fabsf(psi) < SENSOR_ZERO_DEADBAND_PSI) psi = 0.0f;
-    return clampf(psi, BOOST_MIN_PSI, BOOST_MAX_PSI);
+    if (fabsf(pressure) < display_zero_deadband) pressure = 0.0f;
+    return clampf(pressure, display_min_pressure, display_max_pressure);
 }
 
 void prime_pressure_sensor()
@@ -2246,7 +2536,7 @@ void set_indicator_position(float psi_value)
     lv_line_set_points(indicator_cursor, indicator_cursor_points, 2);
 }
 
-void update_boost_ui(float psi_value)
+void update_boost_ui(float pressure_value)
 {
     static uint32_t last_value_update_ms = 0;
     uint32_t now = millis();
@@ -2256,11 +2546,11 @@ void update_boost_ui(float psi_value)
         last_value_update_ms = now;
 
         char txt[16];
-        snprintf(txt, sizeof(txt), "%.1f", psi_value);
+        snprintf(txt, sizeof(txt), "%.1f", pressure_value);
         render_prebaked_value(txt, false);
     }
 
-    render_prebaked_gauge(psi_value, update_value);
+    render_prebaked_gauge(pressure_value, update_value);
 
     // Cambiar color según presión
 }
@@ -2287,19 +2577,19 @@ bool update_startup_sequence(uint32_t now)
         prebaked_force_full = true;
         startup_phase = STARTUP_SWEEP_UP;
         startup_phase_started_ms = now;
-        filtered_bar = BOOST_MIN_PSI;
-        update_boost_ui(filtered_bar);
+        filtered_pressure = display_min_pressure;
+        update_boost_ui(filtered_pressure);
         return true;
     }
 
     if (startup_phase == STARTUP_SWEEP_UP) {
         float progress = elapsed / (float)STARTUP_SWEEP_UP_MS;
-        filtered_bar = mapf(smoothstep01(progress), 0.0f, 1.0f,
-                            BOOST_MIN_PSI, BOOST_MAX_PSI);
-        update_boost_ui(filtered_bar);
+        filtered_pressure = mapf(smoothstep01(progress), 0.0f, 1.0f,
+                                 display_min_pressure, display_max_pressure);
+        update_boost_ui(filtered_pressure);
 
         if (elapsed >= STARTUP_SWEEP_UP_MS) {
-            startup_sweep_target_psi = BOOST_MIN_PSI;
+            startup_sweep_target_pressure = display_min_pressure;
             startup_phase = STARTUP_SWEEP_DOWN;
             startup_phase_started_ms = now;
         }
@@ -2307,13 +2597,14 @@ bool update_startup_sequence(uint32_t now)
     }
 
     float progress = elapsed / (float)STARTUP_SWEEP_DOWN_MS;
-    filtered_bar = mapf(smoothstep01(progress), 0.0f, 1.0f,
-                        BOOST_MAX_PSI, startup_sweep_target_psi);
-    update_boost_ui(filtered_bar);
+    filtered_pressure = mapf(smoothstep01(progress), 0.0f, 1.0f,
+                             display_max_pressure,
+                             startup_sweep_target_pressure);
+    update_boost_ui(filtered_pressure);
 
     if (elapsed >= STARTUP_SWEEP_DOWN_MS) {
-        filtered_bar = startup_sweep_target_psi;
-        update_boost_ui(filtered_bar);
+        filtered_pressure = startup_sweep_target_pressure;
+        update_boost_ui(filtered_pressure);
         prime_pressure_sensor();
         startup_phase = STARTUP_COMPLETE;
     }
@@ -2328,6 +2619,9 @@ void setup()
 {
     Serial.begin(115200);
     Serial.println("Boot...");
+    load_pressure_unit();
+    Serial.printf("Unit: %s\n",
+                  pressure_unit == PRESSURE_UNIT_BAR ? "BAR" : "PSI");
 #if ENABLE_PERF_TELEMETRY
     esp_rom_printf(
         "Memory: flash=%lu MB, psram=%lu MB, free_psram=%lu KB\n",
@@ -2397,7 +2691,7 @@ void setup()
     lv_obj_invalidate(lv_scr_act());
     lv_refr_now(NULL);
 
-    apply_prebaked_visual(static_frame, PREBAKED_GAUGE_VISUAL);
+    prepare_static_gauge_frame();
     memcpy(composited_frame, static_frame,
            LCD_WIDTH * LCD_HEIGHT * sizeof(lv_color_t));
 
@@ -2447,7 +2741,7 @@ void loop()
         rendered_value_text[0] = '\0';
         prebaked_force_full = true;
         gauge_restore_pending = false;
-        update_boost_ui(filtered_bar);
+        update_boost_ui(filtered_pressure);
     }
 
     const uint32_t now = millis();
@@ -2478,22 +2772,25 @@ void loop()
 #endif
 
     if (gauge_frame_due) {
-        float bar;
+        float pressure;
         if (gauge_mode == GAUGE_MODE_SHOW) {
-            bar = show_boost_psi(now);
-            filtered_bar = bar;
+            pressure = show_boost_pressure(now);
+            filtered_pressure = pressure;
         } else {
-            bar = read_boost_psi();
+            pressure = read_boost_pressure();
             // Modo real: representar la lectura del sensor sin interpolacion visual.
-            filtered_bar = bar;
+            filtered_pressure = pressure;
         }
 
-        update_boost_ui(filtered_bar);
+        update_boost_ui(filtered_pressure);
 
         if (gauge_mode == GAUGE_MODE_LIVE && now - last_serial_ms >= SERIAL_UPDATE_MS) {
             last_serial_ms = now;
-            Serial.printf("sensor: sample_mv=%u, filtered_mv=%u, psi=%.3f\n",
-                          last_sensor_sample_mv, last_sensor_mv, filtered_bar);
+            Serial.printf(
+                "sensor: sample_mv=%u, filtered_mv=%u, %s=%.3f\n",
+                last_sensor_sample_mv, last_sensor_mv,
+                pressure_unit == PRESSURE_UNIT_BAR ? "bar" : "psi",
+                filtered_pressure);
         }
     }
 

@@ -18,13 +18,14 @@ screen. An initial sweep runs before live sensor readings begin.
 
 ## Features
 
-- Gauge range from -15 to 30 PSI.
+- Selectable gauge range: -15 to 30 PSI or -1 to 2 BAR.
+- PSI is the default; the selected unit is saved across restarts.
 - Smooth pressure-dependent arc color.
 - Prebaked arc, cursor, number and logo rendering.
 - Versioned cache format with size, ABI and CRC validation.
 - Five-second Honda/Civic startup screen and initial sweep.
 - Capacitive touch on the Civic logo to toggle SHOW mode.
-- Long press on the Civic logo for brightness and zero calibration.
+- Long press on the Civic logo for unit selection, brightness and zero calibration.
 - 75% default display brightness.
 - Sensor input is currently WIP while the replacement sensor is in transit.
 
@@ -37,6 +38,8 @@ firmware integration and calibration will be completed when the sensor arrives.
 
 Until then, the live firmware keeps the existing analog input path on GPIO 1
 for bench testing; the SHOW mode is available without a connected sensor.
+The analog path maps millivolts directly into the selected display unit, so BAR
+mode does not perform a PSI-to-BAR conversion on every frame.
 
 ## Hardware
 
