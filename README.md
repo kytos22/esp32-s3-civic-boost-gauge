@@ -69,6 +69,13 @@ To upload to a specific serial port:
 pio run --target upload --upload-port COM6
 ```
 
+## Development guide
+
+Coding agents and contributors should read [`AGENTS.md`](AGENTS.md) before
+changing the renderer, display transfer, touch mapping, generated assets or
+sensor path. It documents the verified architecture, invariants and validation
+workflows used by this project.
+
 The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
 1.1 firmware images and both gauge GIFs are in `firmware/1.1.0/`.
 
