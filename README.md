@@ -10,7 +10,7 @@ screen. An initial sweep runs before live sensor readings begin.
 
 ## Gauge demo
 
-![Civic boost gauge demo](firmware/1.0.0/civic-boost-gauge-demo.gif)
+![Civic boost gauge demo](firmware/1.0.0/civic-boost-gauge-demo.gif?rev=942f434)
 
 ## Boot screen
 
