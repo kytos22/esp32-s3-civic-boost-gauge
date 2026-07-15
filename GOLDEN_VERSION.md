@@ -13,7 +13,7 @@ Status: Verified by hardware observation
 - Diagnostic telemetry is disabled for normal use.
 - Brightness slider follows the visually rotated control 1:1.
 - Brightness controls verified on the 466x466 FT3168 touch panel.
-- Compiled recovery and application images are stored in `firmware/golden/`.
+- Compiled recovery and application images are stored in `firmware/1.0.0/`.
 
 The final pressure-sensor calibration remains pending until the replacement
 sensor is installed.

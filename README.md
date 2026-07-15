@@ -8,6 +8,8 @@ smooth 60 Hz updates. The 4.90 MB cache is stored in the firmware as a 465 KB
 zlib asset, validated and decompressed directly into PSRAM during the startup
 screen. An initial sweep runs before live sensor readings begin.
 
+![Civic boost gauge demo](firmware/1.0.0/civic-boost-gauge-demo.gif)
+
 ## Features
 
 - Gauge range from -15 to 30 PSI.
@@ -18,7 +20,17 @@ screen. An initial sweep runs before live sensor readings begin.
 - Capacitive touch on the Civic logo to toggle SHOW mode.
 - Long press on the Civic logo for brightness and zero calibration.
 - 75% default display brightness.
-- Analog pressure input on GPIO 1.
+- Sensor input is currently WIP while the replacement sensor is in transit.
+
+## Pressure sensor
+
+The planned turbo sensor is the **XGZP6847D I2C**, using the bidirectional
+`-100 to +300 kPa` variant. It accepts `2.5 to 5.5 V`, uses the I2C address
+`0x6D`, and is suitable for the gauge's `-15 to 30 PSI` range. The final
+firmware integration and calibration will be completed when the sensor arrives.
+
+Until then, the live firmware keeps the existing analog input path on GPIO 1
+for bench testing; the SHOW mode is available without a connected sensor.
 
 ## Hardware
 
@@ -44,7 +56,8 @@ To upload to a specific serial port:
 pio run --target upload --upload-port COM6
 ```
 
-The validated renderer snapshot is documented in `GOLDEN_VERSION.md`.
+The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
+1.0 firmware images and the demo GIF are in `firmware/1.0.0/`.
 
 ## Prebaked cache
 
