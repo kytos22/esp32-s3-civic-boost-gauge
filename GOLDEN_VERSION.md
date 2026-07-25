@@ -1,7 +1,7 @@
-# Golden Version: Smooth Renderer and Aligned Touch
+# Golden Version: Final Digital-Sensor Firmware
 
-Date: 2026-07-15
-Status: Verified by hardware observation
+Date: 2026-07-25
+Status: Hardware verified and released as v1.2.1
 
 - Smooth forward and reverse SHOW animation.
 - No visible cursor or arc artifacts.
@@ -15,10 +15,16 @@ Status: Verified by hardware observation
 - Brightness controls verified on the 466x466 FT3168 touch panel.
 - XGZP6847D pressure and temperature acquisition verified on the shared I2C bus.
 - FT3168 touch keepalive verified alongside 100 Hz sensor acquisition.
-- Compiled recovery and application images are stored in `firmware/1.0.0/`.
+- Zero, positive pressure beyond 30 PSI and the available negative-pressure
+  syringe range were verified on the bench.
+- Persistent PSI/BAR unit, brightness and sensor-temperature visibility were
+  verified across restarts.
+- Production diagnostics are disabled while boot, error and recovery messages
+  remain available over USB serial.
+- Final application and complete flash images are stored in `firmware/1.2.1/`.
 
 The factory-calibrated digital pressure result is used directly without
 software zero calibration.
 
-Do not change the rendering or display-transfer path without making a new
-backup first.
+Do not change the rendering, display-transfer, touch or sensor-acquisition paths
+without creating a new version and repeating the relevant hardware checks.

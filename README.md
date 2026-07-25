@@ -3,6 +3,9 @@
 Turbo boost gauge for the Waveshare ESP32-S3-Touch-AMOLED-1.43. The interface
 is designed for the 466x466 AMOLED with the USB connector facing down.
 
+The current production release is **v1.2.1**, using the hardware-tested
+XGZP6847D digital pressure sensor and the stable FT3168 shared-I2C touch path.
+
 The renderer uses pre-generated static visuals and a build-time gauge cache for
 smooth 60 Hz updates. The 4.90 MB cache is stored in the firmware as a 465 KB
 zlib asset, validated and decompressed directly into PSRAM during the startup
@@ -63,6 +66,28 @@ error and recovery messages remain available over USB serial.
 - Sensor VDD connected to 3.3 V.
 - Common ground between the sensor and the ESP32-S3.
 
+## Wiring
+
+![Waveshare ESP32-S3 to XGZP6847D wiring diagram](docs/xgzp6847d-wiring-diagram.png)
+
+Use the board's four-pin SH1.0 I2C connector. The connector contact order and
+sensor pin mapping are:
+
+| Waveshare connector | Signal | XGZP6847D pin |
+| --- | --- | --- |
+| Pin 1 | SDA / GPIO 47 | Pin 5 / SDA |
+| Pin 2 | SCL / GPIO 48 | Pin 1 / SCL |
+| Pin 3 | GND | Pin 3 / GND |
+| Pin 4 | 3V3 | Pin 4 / VDD |
+
+Leave XGZP6847D pins 2 and 6 completely unconnected. Place a 100 nF ceramic
+capacitor rated for at least 10 V between sensor pins 4 (VDD) and 3 (GND), as
+close to the sensor as practical. The capacitor has no polarity. Cable colors
+may vary, so follow the connector pin numbers rather than color alone.
+
+The editable vector diagram is available in
+[`docs/xgzp6847d-wiring-diagram.svg`](docs/xgzp6847d-wiring-diagram.svg).
+
 The onboard FT3168 uses Waveshare's grouped polling method on the 300 kHz shared
 bus: normal mode, one finger-count read and one grouped X/Y read per active
 touch. Active power mode is refreshed every second and automatic monitor entry
@@ -71,6 +96,15 @@ on the shared live bus.
 
 The sensor and I2C pull-ups must remain at 3.3 V. Do not apply 5 V to the SDA
 or SCL lines.
+
+## Firmware download
+
+Download the complete v1.2.1 package from the
+[GitHub release page](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.2.1).
+Use the full image at flash address `0x0` for a complete installation. Use the
+application-only image at `0x10000` only when the board already has the matching
+bootloader and partition table. Verify downloaded files against
+`SHA256SUMS.txt`.
 
 ## Build
 
