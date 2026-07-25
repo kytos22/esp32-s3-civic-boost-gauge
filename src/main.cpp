@@ -1,6 +1,5 @@
 #include <lvgl.h>
 #include <Arduino_GFX_Library.h>
-#include "Arduino_DriveBus_Library.h"
 #include "pin_config.h"
 #include "prebaked_cache_format.h"
 #include "prebaked_gauge_cache.h"
@@ -36,11 +35,25 @@ Arduino_DataBus *bus = new Arduino_ESP32QSPI(
 Arduino_SH8601 *gfx = new Arduino_SH8601(
     bus, LCD_RST, 0 /* rotation */, false /* IPS */, LCD_WIDTH, LCD_HEIGHT);
 
-std::shared_ptr<Arduino_IIC_DriveBus> IIC_Bus =
-    std::make_shared<Arduino_HWIIC>(IIC_SDA, IIC_SCL, &Wire);
-
-std::unique_ptr<Arduino_IIC> FT3168(
-    new Arduino_FT3x68(IIC_Bus, FT3168_DEVICE_ADDRESS));
+static const uint8_t TOUCH_I2C_ADDRESS = 0x38;
+static const uint8_t TOUCH_DEVICE_MODE_REGISTER = 0x00;
+static const uint8_t TOUCH_FINGER_COUNT_REGISTER = 0x02;
+static const uint8_t TOUCH_FIRST_POINT_REGISTER = 0x03;
+static const uint8_t TOUCH_AUTOMATIC_MONITOR_REGISTER = 0x86;
+static const uint8_t TOUCH_AUTOMATIC_MONITOR_TIME_REGISTER = 0x87;
+static const uint8_t TOUCH_POWER_MODE_REGISTER = 0xA5;
+static const uint8_t TOUCH_DEVICE_MODE_NORMAL = 0x00;
+static const uint8_t TOUCH_AUTOMATIC_MONITOR_DISABLED = 0x00;
+static const uint8_t TOUCH_AUTOMATIC_MONITOR_TIME_MAX_SECONDS = 100;
+static const uint8_t TOUCH_POWER_MODE_ACTIVE = 0x00;
+static const uint32_t SHARED_I2C_FREQUENCY_HZ = 300000;
+static const uint32_t TOUCH_KEEPALIVE_INTERVAL_MS = 1000;
+static bool touch_controller_ready = false;
+static uint32_t touch_i2c_error_count = 0;
+static uint8_t touch_i2c_consecutive_errors = 0;
+static uint32_t touch_press_count = 0;
+static uint32_t touch_last_keepalive_ms = 0;
+static bool touch_was_pressed = false;
 
 // =========================
 // LVGL buffer
@@ -110,10 +123,10 @@ lv_obj_t *civic_logo_image;
 lv_obj_t *brightness_panel;
 lv_obj_t *brightness_label;
 lv_obj_t *brightness_slider;
-lv_obj_t *zero_calibrate_button;
-lv_obj_t *zero_calibrate_label;
 lv_obj_t *unit_psi_button;
 lv_obj_t *unit_bar_button;
+lv_obj_t *sensor_temperature_button;
+lv_obj_t *sensor_temperature_label;
 lv_obj_t *indicator_outline;
 lv_obj_t *indicator_cursor;
 lv_obj_t *arc_fill;
@@ -144,19 +157,26 @@ static const float BOOST_MIN_BAR = -1.0f;
 static const float BOOST_MAX_BAR =  2.0f;
 static const float PSI_PER_BAR = 14.5037738f;
 
-// Sensibilidad de la tabla del sensor alimentado a 5 V y conectado
-// directamente al ADC: 0.1 V = -15 PSI, 1.0 V = 0 PSI y 3.33 V = 30 PSI.
-// Recalibrar desplaza el cero, pero conserva estas pendientes.
-static const float SENSOR_VACUUM_SPAN_MV = 900.0f;
-static const float SENSOR_30_PSI_SPAN_MV = 2330.0f;
-static const float SENSOR_DEFAULT_ZERO_MV = 1000.0f;
-static const float SENSOR_MIN_VALID_ZERO_MV = 600.0f;
-static const float SENSOR_MAX_VALID_ZERO_MV = 1300.0f;
+// XGZP6847D300KPGPN: -100..+300 kPa, I2C address 0x6D.
+// The V2.x transfer function uses K=16 counts/Pa for the +300 kPa range.
+static const uint8_t SENSOR_I2C_ADDRESS = 0x6D;
+static const uint8_t SENSOR_COMMAND_REGISTER = 0x30;
+static const uint8_t SENSOR_PRESSURE_MSB_REGISTER = 0x06;
+static const uint8_t SENSOR_TEMPERATURE_MSB_REGISTER = 0x09;
+static const uint8_t SENSOR_START_COMBINED_CONVERSION = 0x0A;
+static const uint8_t SENSOR_CONVERSION_BUSY_MASK = 0x08;
+static const float SENSOR_COUNTS_PER_PA = 16.0f;
+static const float SENSOR_MIN_PLAUSIBLE_KPA = -110.0f;
+static const float SENSOR_MAX_PLAUSIBLE_KPA = 310.0f;
 static const float SENSOR_ZERO_DEADBAND_PSI = 0.25f;
 static const float SENSOR_ZERO_DEADBAND_BAR = 0.02f;
-static const float SENSOR_FILTER_ALPHA = 0.18f;
-static const uint8_t SENSOR_SAMPLE_COUNT = 8;
-static const uint8_t SENSOR_CALIBRATION_SAMPLES = 64;
+static const float SENSOR_FILTER_ALPHA = 0.35f;
+static const uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
+static const uint32_t SENSOR_STATUS_POLL_INTERVAL_MS = 2;
+static const uint32_t SENSOR_CONVERSION_TIMEOUT_MS = 35;
+static const uint32_t SENSOR_STALE_TIMEOUT_MS = 1000;
+static const uint32_t SENSOR_REPROBE_INTERVAL_MS = 1000;
+static const uint32_t SENSOR_TEMPERATURE_DISPLAY_INTERVAL_MS = 5000;
 
 // Centro y radio del gauge
 // Native framebuffer orientation with the USB connector at the bottom.
@@ -207,16 +227,24 @@ static float display_min_pressure = BOOST_MIN_PSI;
 static float display_max_pressure = BOOST_MAX_PSI;
 static float display_zero_deadband = SENSOR_ZERO_DEADBAND_PSI;
 float filtered_pressure = 0.0f;
-static uint16_t last_sensor_mv = 0;
-static uint16_t last_sensor_sample_mv = 0;
-static float filtered_sensor_mv = SENSOR_DEFAULT_ZERO_MV;
+static bool pressure_sensor_present = false;
+static bool pressure_sensor_data_valid = false;
+static bool pressure_sensor_conversion_pending = false;
+static float pressure_sensor_sample_kpa = 0.0f;
+static float pressure_sensor_filtered_kpa = 0.0f;
+static float pressure_sensor_temperature_c = 0.0f;
+static int32_t pressure_sensor_raw_counts = 0;
+static uint32_t pressure_sensor_conversion_started_ms = 0;
+static uint32_t pressure_sensor_last_status_poll_ms = 0;
+static uint32_t pressure_sensor_last_request_ms = 0;
+static uint32_t pressure_sensor_last_valid_ms = 0;
+static uint32_t pressure_sensor_last_probe_ms = 0;
+static uint32_t pressure_sensor_error_count = 0;
+static uint8_t pressure_sensor_consecutive_errors = 0;
 static bool sensor_filter_initialized = false;
-static float sensor_vacuum_mv = SENSOR_DEFAULT_ZERO_MV - SENSOR_VACUUM_SPAN_MV;
-static float sensor_atmosphere_mv = SENSOR_DEFAULT_ZERO_MV;
-static float sensor_30_psi_mv = SENSOR_DEFAULT_ZERO_MV + SENSOR_30_PSI_SPAN_MV;
-static float display_sensor_min_mv = sensor_vacuum_mv;
-static float display_sensor_max_mv = sensor_30_psi_mv;
-static lv_timer_t *zero_feedback_timer = nullptr;
+static bool sensor_temperature_enabled = false;
+static uint32_t sensor_temperature_last_display_ms = 0;
+static char sensor_temperature_display_text[16] = "--.- C";
 
 enum GaugeMode {
     GAUGE_MODE_LIVE,
@@ -235,7 +263,10 @@ StartupPhase startup_phase = STARTUP_SPLASH;
 uint32_t show_started_ms = 0;
 uint32_t startup_phase_started_ms = 0;
 float startup_sweep_target_pressure = 0.0f;
-uint8_t screen_brightness = 191; // 75% of the display brightness range
+static const uint8_t SCREEN_BRIGHTNESS_MIN = 10;
+static const uint8_t SCREEN_BRIGHTNESS_DEFAULT = 191; // 75%
+uint8_t screen_brightness = SCREEN_BRIGHTNESS_DEFAULT;
+static uint8_t saved_screen_brightness = SCREEN_BRIGHTNESS_DEFAULT;
 bool brightness_menu_open = false;
 bool suppress_show_click = false;
 lv_area_t arc_color_areas[ARC_COLOR_SEGMENT_COUNT];
@@ -346,17 +377,10 @@ void configure_pressure_unit(PressureUnit unit)
         display_min_pressure = BOOST_MIN_BAR;
         display_max_pressure = BOOST_MAX_BAR;
         display_zero_deadband = SENSOR_ZERO_DEADBAND_BAR;
-        display_sensor_min_mv = sensor_atmosphere_mv -
-            SENSOR_VACUUM_SPAN_MV * PSI_PER_BAR / -BOOST_MIN_PSI;
-        display_sensor_max_mv = sensor_atmosphere_mv +
-            SENSOR_30_PSI_SPAN_MV *
-            (BOOST_MAX_BAR * PSI_PER_BAR) / BOOST_MAX_PSI;
     } else {
         display_min_pressure = BOOST_MIN_PSI;
         display_max_pressure = BOOST_MAX_PSI;
         display_zero_deadband = SENSOR_ZERO_DEADBAND_PSI;
-        display_sensor_min_mv = sensor_vacuum_mv;
-        display_sensor_max_mv = sensor_30_psi_mv;
     }
 }
 
@@ -379,6 +403,58 @@ void save_pressure_unit()
     if (!preferences.begin("boost-gauge", false)) return;
     preferences.putUChar("unit", (uint8_t)pressure_unit);
     preferences.end();
+}
+
+void load_sensor_temperature_setting()
+{
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", true)) {
+        sensor_temperature_enabled = false;
+        return;
+    }
+    sensor_temperature_enabled = preferences.getBool("temp-show", false);
+    preferences.end();
+}
+
+void save_sensor_temperature_setting()
+{
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", false)) return;
+    preferences.putBool("temp-show", sensor_temperature_enabled);
+    preferences.end();
+}
+
+void load_screen_brightness()
+{
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", true)) {
+        screen_brightness = SCREEN_BRIGHTNESS_DEFAULT;
+        saved_screen_brightness = screen_brightness;
+        return;
+    }
+    uint8_t stored_brightness = preferences.getUChar(
+        "brightness", SCREEN_BRIGHTNESS_DEFAULT);
+    preferences.end();
+    if (stored_brightness < SCREEN_BRIGHTNESS_MIN) {
+        stored_brightness = SCREEN_BRIGHTNESS_DEFAULT;
+    }
+    screen_brightness = stored_brightness;
+    saved_screen_brightness = stored_brightness;
+}
+
+void save_screen_brightness()
+{
+    if (screen_brightness == saved_screen_brightness) return;
+
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", false)) return;
+    const size_t bytes_written =
+        preferences.putUChar("brightness", screen_brightness);
+    preferences.end();
+    if (bytes_written > 0) {
+        saved_screen_brightness = screen_brightness;
+        Serial.printf("Brightness saved: %u\n", screen_brightness);
+    }
 }
 
 lv_color_t boost_color(float psi_value);
@@ -404,29 +480,235 @@ void align_rotated_object(lv_obj_t *obj, lv_coord_t logical_x, lv_coord_t logica
     lv_obj_set_style_transform_angle(obj, 900, 0);
 }
 
-bool calibrate_pressure_zero()
+bool touch_write_register(uint8_t register_address, uint8_t value)
 {
-    uint32_t mv_sum = 0;
-    for (uint8_t sample = 0; sample < SENSOR_CALIBRATION_SAMPLES; ++sample) {
-        mv_sum += analogReadMilliVolts(PRESSURE_SENSOR_PIN);
-        delayMicroseconds(100);
+    Wire.beginTransmission(TOUCH_I2C_ADDRESS);
+    if (Wire.write(register_address) != 1 ||
+        Wire.write(value) != 1) {
+        Wire.endTransmission();
+        return false;
     }
+    return Wire.endTransmission() == 0;
+}
 
-    float measured_zero_mv = mv_sum / (float)SENSOR_CALIBRATION_SAMPLES;
-    if (measured_zero_mv < SENSOR_MIN_VALID_ZERO_MV ||
-        measured_zero_mv > SENSOR_MAX_VALID_ZERO_MV) {
-        Serial.printf("Zero calibration rejected: %.1f mV\n", measured_zero_mv);
+bool touch_read_registers(
+    uint8_t register_address, uint8_t *buffer, size_t length)
+{
+    Wire.beginTransmission(TOUCH_I2C_ADDRESS);
+    if (Wire.write(register_address) != 1 ||
+        Wire.endTransmission(false) != 0) {
         return false;
     }
 
-    sensor_atmosphere_mv = measured_zero_mv;
-    sensor_vacuum_mv = measured_zero_mv - SENSOR_VACUUM_SPAN_MV;
-    sensor_30_psi_mv = measured_zero_mv + SENSOR_30_PSI_SPAN_MV;
-    filtered_sensor_mv = measured_zero_mv;
-    sensor_filter_initialized = true;
-    last_sensor_mv = (uint16_t)lroundf(measured_zero_mv);
-    configure_pressure_unit(pressure_unit);
-    Serial.printf("Zero calibrated: %.1f mV\n", measured_zero_mv);
+    if (Wire.requestFrom(
+            (int)TOUCH_I2C_ADDRESS, (int)length) != length ||
+        Wire.available() < (int)length) {
+        return false;
+    }
+
+    for (size_t index = 0; index < length; ++index) {
+        buffer[index] = (uint8_t)Wire.read();
+    }
+    return true;
+}
+
+void touch_record_i2c_result(bool success, const char *operation)
+{
+    if (success) {
+        touch_i2c_consecutive_errors = 0;
+        return;
+    }
+
+    ++touch_i2c_error_count;
+    if (touch_i2c_consecutive_errors < UINT8_MAX) {
+        ++touch_i2c_consecutive_errors;
+    }
+
+    if (touch_i2c_consecutive_errors == 1 ||
+        touch_i2c_consecutive_errors % 25 == 0) {
+        Serial.printf(
+            "FT3168 I2C error: %s (consecutive=%u, total=%lu)\n",
+            operation,
+            (unsigned)touch_i2c_consecutive_errors,
+            (unsigned long)touch_i2c_error_count);
+    }
+}
+
+bool initialize_touch_controller()
+{
+    const bool active_mode_ready = touch_write_register(
+        TOUCH_POWER_MODE_REGISTER, TOUCH_POWER_MODE_ACTIVE);
+    touch_record_i2c_result(active_mode_ready, "set active power mode");
+
+    const bool automatic_monitor_disabled = touch_write_register(
+        TOUCH_AUTOMATIC_MONITOR_REGISTER,
+        TOUCH_AUTOMATIC_MONITOR_DISABLED);
+    touch_record_i2c_result(
+        automatic_monitor_disabled, "disable automatic monitor");
+
+    const bool monitor_time_extended = touch_write_register(
+        TOUCH_AUTOMATIC_MONITOR_TIME_REGISTER,
+        TOUCH_AUTOMATIC_MONITOR_TIME_MAX_SECONDS);
+    touch_record_i2c_result(
+        monitor_time_extended, "extend automatic monitor time");
+
+    const bool normal_mode_ready = touch_write_register(
+        TOUCH_DEVICE_MODE_REGISTER, TOUCH_DEVICE_MODE_NORMAL);
+    touch_record_i2c_result(normal_mode_ready, "set normal mode");
+    if (!active_mode_ready ||
+        !automatic_monitor_disabled ||
+        !monitor_time_extended ||
+        !normal_mode_ready) {
+        return false;
+    }
+
+    uint8_t finger_count = 0;
+    const bool readable = touch_read_registers(
+        TOUCH_FINGER_COUNT_REGISTER, &finger_count, 1);
+    touch_record_i2c_result(readable, "read finger count");
+    return readable;
+}
+
+void service_touch_controller(uint32_t now)
+{
+    if (now - touch_last_keepalive_ms < TOUCH_KEEPALIVE_INTERVAL_MS) {
+        return;
+    }
+    touch_last_keepalive_ms = now;
+
+    if (!touch_controller_ready) {
+        touch_controller_ready = initialize_touch_controller();
+        if (touch_controller_ready) {
+            Serial.println("FT3168 communication recovered");
+        }
+        return;
+    }
+
+    const bool active_mode_ready = touch_write_register(
+        TOUCH_POWER_MODE_REGISTER, TOUCH_POWER_MODE_ACTIVE);
+    touch_record_i2c_result(
+        active_mode_ready, "keep active power mode");
+
+    const bool automatic_monitor_disabled = touch_write_register(
+        TOUCH_AUTOMATIC_MONITOR_REGISTER,
+        TOUCH_AUTOMATIC_MONITOR_DISABLED);
+    touch_record_i2c_result(
+        automatic_monitor_disabled, "keep automatic monitor disabled");
+
+    if (!active_mode_ready || !automatic_monitor_disabled) {
+        touch_controller_ready = false;
+    }
+}
+
+bool pressure_sensor_probe()
+{
+    Wire.beginTransmission(SENSOR_I2C_ADDRESS);
+    return Wire.endTransmission() == 0;
+}
+
+bool pressure_sensor_write_register(uint8_t register_address, uint8_t value)
+{
+    Wire.beginTransmission(SENSOR_I2C_ADDRESS);
+    if (Wire.write(register_address) != 1 ||
+        Wire.write(value) != 1) {
+        Wire.endTransmission();
+        return false;
+    }
+    return Wire.endTransmission() == 0;
+}
+
+bool pressure_sensor_read_registers(
+    uint8_t register_address, uint8_t *buffer, size_t length)
+{
+    Wire.beginTransmission(SENSOR_I2C_ADDRESS);
+    if (Wire.write(register_address) != 1 ||
+        Wire.endTransmission(false) != 0) {
+        return false;
+    }
+
+    if (Wire.requestFrom(
+            (int)SENSOR_I2C_ADDRESS, (int)length) != length ||
+        Wire.available() < (int)length) {
+        return false;
+    }
+
+    for (size_t index = 0; index < length; ++index) {
+        buffer[index] = (uint8_t)Wire.read();
+    }
+    return true;
+}
+
+bool pressure_sensor_read_register(uint8_t register_address, uint8_t &value)
+{
+    return pressure_sensor_read_registers(register_address, &value, 1);
+}
+
+void pressure_sensor_record_error(const char *reason)
+{
+    ++pressure_sensor_error_count;
+    if (pressure_sensor_consecutive_errors < UINT8_MAX) {
+        ++pressure_sensor_consecutive_errors;
+    }
+    pressure_sensor_conversion_pending = false;
+    if (pressure_sensor_consecutive_errors >= 5) {
+        pressure_sensor_present = false;
+        pressure_sensor_last_probe_ms = millis();
+    }
+
+    if (pressure_sensor_consecutive_errors == 1 ||
+        pressure_sensor_consecutive_errors % 25 == 0) {
+        Serial.printf(
+            "XGZP6847D error: %s (consecutive=%u, total=%lu)\n",
+            reason,
+            (unsigned)pressure_sensor_consecutive_errors,
+            (unsigned long)pressure_sensor_error_count);
+    }
+}
+
+bool pressure_sensor_start_conversion()
+{
+    if (!pressure_sensor_write_register(
+            SENSOR_COMMAND_REGISTER,
+            SENSOR_START_COMBINED_CONVERSION)) {
+        pressure_sensor_record_error("start conversion");
+        return false;
+    }
+
+    pressure_sensor_conversion_started_ms = millis();
+    pressure_sensor_last_status_poll_ms =
+        pressure_sensor_conversion_started_ms;
+    pressure_sensor_last_request_ms = pressure_sensor_conversion_started_ms;
+    pressure_sensor_conversion_pending = true;
+    return true;
+}
+
+bool pressure_sensor_read_result(
+    float &pressure_kpa, float &temperature_c, int32_t &raw_counts)
+{
+    uint8_t measurement_bytes[5];
+    if (!pressure_sensor_read_registers(
+            SENSOR_PRESSURE_MSB_REGISTER,
+            measurement_bytes,
+            sizeof(measurement_bytes))) {
+        return false;
+    }
+
+    int32_t pressure_value =
+        ((int32_t)measurement_bytes[0] << 16) |
+        ((int32_t)measurement_bytes[1] << 8) |
+        measurement_bytes[2];
+    if ((pressure_value & 0x00800000L) != 0) {
+        pressure_value |= (int32_t)0xFF000000L;
+    }
+
+    int16_t temperature_value =
+        (int16_t)(((uint16_t)measurement_bytes[3] << 8) |
+                  measurement_bytes[4]);
+
+    raw_counts = pressure_value;
+    pressure_kpa =
+        pressure_value / SENSOR_COUNTS_PER_PA / 1000.0f;
+    temperature_c = temperature_value / 256.0f;
     return true;
 }
 
@@ -730,6 +1012,14 @@ void clear_static_label(const char *text, float value,
 void prepare_static_gauge_frame()
 {
     apply_prebaked_visual(static_frame, PREBAKED_GAUGE_VISUAL);
+    if (sensor_temperature_enabled) {
+        draw_static_text(
+            sensor_temperature_display_text,
+            &lv_font_montserrat_32,
+            233,
+            360,
+            lv_palette_main(LV_PALETTE_CYAN));
+    }
     if (pressure_unit == PRESSURE_UNIT_PSI) return;
 
     static const float psi_label_values[] = {
@@ -770,6 +1060,45 @@ void prepare_static_gauge_frame()
     }
     draw_static_text(
         "BAR", &psi_font_32_bold, 233, 299, lv_color_white());
+}
+
+void update_sensor_temperature_display(uint32_t now)
+{
+    if (!sensor_temperature_enabled ||
+        brightness_menu_open ||
+        now - sensor_temperature_last_display_ms <
+            SENSOR_TEMPERATURE_DISPLAY_INTERVAL_MS) {
+        return;
+    }
+    sensor_temperature_last_display_ms = now;
+
+    char next_text[sizeof(sensor_temperature_display_text)];
+    const bool temperature_available =
+        pressure_sensor_data_valid &&
+        now - pressure_sensor_last_valid_ms <= SENSOR_STALE_TIMEOUT_MS;
+    if (temperature_available) {
+        snprintf(
+            next_text,
+            sizeof(next_text),
+            "%.1f C",
+            pressure_sensor_temperature_c);
+    } else {
+        strncpy(next_text, "--.- C", sizeof(next_text));
+        next_text[sizeof(next_text) - 1] = '\0';
+    }
+
+    if (strcmp(next_text, sensor_temperature_display_text) == 0) {
+        return;
+    }
+
+    strncpy(
+        sensor_temperature_display_text,
+        next_text,
+        sizeof(sensor_temperature_display_text));
+    sensor_temperature_display_text[
+        sizeof(sensor_temperature_display_text) - 1] = '\0';
+    prepare_static_gauge_frame();
+    gauge_restore_pending = true;
 }
 
 void display_prebaked_visual(const PrebakedVisual &visual)
@@ -1776,20 +2105,46 @@ void print_performance_stats(uint32_t interval_ms)
 void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
 {
     (void)indev_driver;
-    int fingers = (int)FT3168->IIC_Read_Device_Value(
-        FT3168->Arduino_IIC_Touch::Value_Information::TOUCH_FINGER_NUMBER);
-
-    if (fingers > 0) {
-        int touch_x = (int)FT3168->IIC_Read_Device_Value(
-            FT3168->Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_X);
-        int touch_y = (int)FT3168->IIC_Read_Device_Value(
-            FT3168->Arduino_IIC_Touch::Value_Information::TOUCH_COORDINATE_Y);
-
-        data->state = LV_INDEV_STATE_PR;
-        data->point.x = touch_x;
-        data->point.y = touch_y;
-    } else {
+    if (!touch_controller_ready) {
         data->state = LV_INDEV_STATE_REL;
+        return;
+    }
+
+    uint8_t finger_count = 0;
+    const bool finger_read_ok = touch_read_registers(
+        TOUCH_FINGER_COUNT_REGISTER, &finger_count, 1);
+    touch_record_i2c_result(finger_read_ok, "read finger count");
+    if (!finger_read_ok || finger_count == 0) {
+        touch_was_pressed = false;
+        data->state = LV_INDEV_STATE_REL;
+        return;
+    }
+
+    uint8_t point_data[4];
+    const bool point_read_ok = touch_read_registers(
+        TOUCH_FIRST_POINT_REGISTER, point_data, sizeof(point_data));
+    touch_record_i2c_result(point_read_ok, "read point block");
+    if (!point_read_ok) {
+        data->state = LV_INDEV_STATE_REL;
+        return;
+    }
+
+    const uint16_t touch_x =
+        ((uint16_t)(point_data[0] & 0x0F) << 8) | point_data[1];
+    const uint16_t touch_y =
+        ((uint16_t)(point_data[2] & 0x0F) << 8) | point_data[3];
+
+    data->state = LV_INDEV_STATE_PR;
+    data->point.x = touch_x < LCD_WIDTH ? touch_x : LCD_WIDTH - 1;
+    data->point.y = touch_y < LCD_HEIGHT ? touch_y : LCD_HEIGHT - 1;
+    if (!touch_was_pressed) {
+        touch_was_pressed = true;
+        ++touch_press_count;
+        Serial.printf(
+            "FT3168 touch: x=%d, y=%d, presses=%lu\n",
+            (int)data->point.x,
+            (int)data->point.y,
+            (unsigned long)touch_press_count);
     }
 }
 
@@ -2190,6 +2545,13 @@ void brightness_step_event(lv_event_t *event)
     screen_brightness = (uint8_t)value;
     gfx->Display_Brightness(screen_brightness);
     update_brightness_label();
+    save_screen_brightness();
+}
+
+void brightness_slider_release_event(lv_event_t *event)
+{
+    (void)event;
+    save_screen_brightness();
 }
 
 void update_pressure_unit_buttons()
@@ -2209,6 +2571,39 @@ void update_pressure_unit_buttons()
         LV_STATE_DEFAULT);
 }
 
+void update_sensor_temperature_button()
+{
+    if (sensor_temperature_button == nullptr ||
+        sensor_temperature_label == nullptr) {
+        return;
+    }
+    lv_label_set_text(
+        sensor_temperature_label,
+        sensor_temperature_enabled ? "TEMP: ON" : "TEMP: OFF");
+    lv_obj_set_style_bg_color(
+        sensor_temperature_button,
+        sensor_temperature_enabled
+            ? lv_palette_darken(LV_PALETTE_GREEN, 2)
+            : lv_palette_darken(LV_PALETTE_GREY, 3),
+        LV_STATE_DEFAULT);
+}
+
+void sensor_temperature_event(lv_event_t *event)
+{
+    (void)event;
+    sensor_temperature_enabled = !sensor_temperature_enabled;
+    save_sensor_temperature_setting();
+    if (sensor_temperature_enabled) {
+        sensor_temperature_last_display_ms =
+            millis() - SENSOR_TEMPERATURE_DISPLAY_INTERVAL_MS;
+    }
+    prepare_static_gauge_frame();
+    update_sensor_temperature_button();
+    Serial.printf(
+        "Sensor temperature display: %s\n",
+        sensor_temperature_enabled ? "ON" : "OFF");
+}
+
 void pressure_unit_event(lv_event_t *event)
 {
     PressureUnit selected = (PressureUnit)(intptr_t)lv_event_get_user_data(event);
@@ -2225,33 +2620,10 @@ void pressure_unit_event(lv_event_t *event)
                   pressure_unit == PRESSURE_UNIT_BAR ? "BAR" : "PSI");
 }
 
-void zero_feedback_reset(lv_timer_t *timer)
-{
-    (void)timer;
-    lv_label_set_text(zero_calibrate_label, "CALIBRAR 0");
-    lv_obj_set_style_text_color(zero_calibrate_label, lv_color_white(), 0);
-    zero_feedback_timer = nullptr;
-}
-
-void zero_calibrate_event(lv_event_t *event)
-{
-    (void)event;
-    bool calibrated = calibrate_pressure_zero();
-
-    lv_label_set_text(zero_calibrate_label, calibrated ? "OK" : "ERROR");
-    lv_obj_set_style_text_color(
-        zero_calibrate_label,
-        calibrated ? lv_palette_main(LV_PALETTE_GREEN) : lv_palette_main(LV_PALETTE_RED),
-        0);
-
-    if (zero_feedback_timer != nullptr) lv_timer_del(zero_feedback_timer);
-    zero_feedback_timer = lv_timer_create(zero_feedback_reset, 1200, nullptr);
-    lv_timer_set_repeat_count(zero_feedback_timer, 1);
-}
-
 void brightness_close_event(lv_event_t *event)
 {
     (void)event;
+    save_screen_brightness();
     brightness_menu_open = false;
     lv_obj_add_flag(brightness_panel, LV_OBJ_FLAG_HIDDEN);
     prebaked_force_full = true;
@@ -2324,7 +2696,7 @@ void create_ui()
     lv_obj_add_event_cb(civic_logo_image, brightness_menu_event, LV_EVENT_LONG_PRESSED, NULL);
 
     brightness_panel = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(brightness_panel, 390, 250);
+    lv_obj_set_size(brightness_panel, 390, 300);
     lv_obj_align(brightness_panel, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_transform_pivot_x(brightness_panel, LV_PCT(50), 0);
     lv_obj_set_style_transform_pivot_y(brightness_panel, LV_PCT(50), 0);
@@ -2375,7 +2747,7 @@ void create_ui()
 
     brightness_slider = lv_slider_create(brightness_panel);
     lv_obj_set_size(brightness_slider, 190, 22);
-    lv_obj_align(brightness_slider, LV_ALIGN_CENTER, 0, 25);
+    lv_obj_align(brightness_slider, LV_ALIGN_CENTER, 0, 15);
     lv_slider_set_range(brightness_slider, 10, 255);
     lv_slider_set_value(brightness_slider, screen_brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(brightness_slider, lv_palette_darken(LV_PALETTE_GREY, 3), LV_PART_MAIN);
@@ -2388,10 +2760,15 @@ void create_ui()
     lv_obj_set_style_height(brightness_slider, 40, LV_PART_KNOB);
     lv_obj_set_ext_click_area(brightness_slider, 16);
     lv_obj_add_event_cb(brightness_slider, brightness_slider_event, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(
+        brightness_slider,
+        brightness_slider_release_event,
+        LV_EVENT_RELEASED,
+        NULL);
 
     lv_obj_t *brightness_down = lv_btn_create(brightness_panel);
     lv_obj_set_size(brightness_down, 58, 58);
-    lv_obj_align(brightness_down, LV_ALIGN_CENTER, -145, 25);
+    lv_obj_align(brightness_down, LV_ALIGN_CENTER, -145, 15);
     lv_obj_set_style_radius(brightness_down, 8, 0);
     lv_obj_set_style_bg_color(brightness_down, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
     lv_obj_set_style_bg_color(brightness_down, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
@@ -2403,7 +2780,7 @@ void create_ui()
 
     lv_obj_t *brightness_up = lv_btn_create(brightness_panel);
     lv_obj_set_size(brightness_up, 58, 58);
-    lv_obj_align(brightness_up, LV_ALIGN_CENTER, 145, 25);
+    lv_obj_align(brightness_up, LV_ALIGN_CENTER, 145, 15);
     lv_obj_set_style_radius(brightness_up, 8, 0);
     lv_obj_set_style_bg_color(brightness_up, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
     lv_obj_set_style_bg_color(brightness_up, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
@@ -2426,23 +2803,29 @@ void create_ui()
     lv_obj_set_style_text_font(brightness_close_label, &lv_font_montserrat_32, 0);
     lv_obj_center(brightness_close_label);
 
-    zero_calibrate_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(zero_calibrate_button, 260, 56);
-    lv_obj_align(zero_calibrate_button, LV_ALIGN_BOTTOM_MID, 0, -15);
-    lv_obj_set_ext_click_area(zero_calibrate_button, 8);
-    lv_obj_set_style_radius(zero_calibrate_button, 8, 0);
+    sensor_temperature_button = lv_btn_create(brightness_panel);
+    lv_obj_set_size(sensor_temperature_button, 240, 50);
+    lv_obj_align(sensor_temperature_button, LV_ALIGN_BOTTOM_MID, 0, -18);
+    lv_obj_set_ext_click_area(sensor_temperature_button, 6);
+    lv_obj_set_style_radius(sensor_temperature_button, 8, 0);
     lv_obj_set_style_bg_color(
-        zero_calibrate_button, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
-    lv_obj_set_style_bg_color(
-        zero_calibrate_button, lv_palette_darken(LV_PALETTE_GREEN, 2), LV_STATE_PRESSED);
+        sensor_temperature_button,
+        lv_palette_darken(LV_PALETTE_GREEN, 1),
+        LV_STATE_PRESSED);
     lv_obj_add_event_cb(
-        zero_calibrate_button, zero_calibrate_event, LV_EVENT_CLICKED, NULL);
+        sensor_temperature_button,
+        sensor_temperature_event,
+        LV_EVENT_CLICKED,
+        NULL);
 
-    zero_calibrate_label = lv_label_create(zero_calibrate_button);
-    lv_label_set_text(zero_calibrate_label, "CALIBRAR 0");
-    lv_obj_set_style_text_color(zero_calibrate_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(zero_calibrate_label, &lv_font_montserrat_18, 0);
-    lv_obj_center(zero_calibrate_label);
+    sensor_temperature_label = lv_label_create(sensor_temperature_button);
+    lv_obj_set_style_text_color(
+        sensor_temperature_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        sensor_temperature_label, &lv_font_montserrat_18, 0);
+    lv_obj_center(sensor_temperature_label);
+    update_sensor_temperature_button();
+
     update_brightness_label();
 
     arc_fill = nullptr;
@@ -2459,44 +2842,98 @@ void create_ui()
 
 float read_boost_pressure()
 {
-    uint32_t mv_sum = 0;
-    for (uint8_t sample = 0; sample < SENSOR_SAMPLE_COUNT; ++sample) {
-        mv_sum += analogReadMilliVolts(PRESSURE_SENSOR_PIN);
-        delayMicroseconds(100);
+    const uint32_t now = millis();
+
+    if (!pressure_sensor_present) {
+        if (now - pressure_sensor_last_probe_ms >=
+            SENSOR_REPROBE_INTERVAL_MS) {
+            pressure_sensor_last_probe_ms = now;
+            pressure_sensor_present = pressure_sensor_probe();
+            if (pressure_sensor_present) {
+                pressure_sensor_consecutive_errors = 0;
+                Serial.println("XGZP6847D detected at 0x6D");
+            }
+        }
+    } else if (!pressure_sensor_conversion_pending &&
+               now - pressure_sensor_last_request_ms >=
+                   SENSOR_SAMPLE_INTERVAL_MS) {
+        pressure_sensor_start_conversion();
+    } else if (pressure_sensor_conversion_pending &&
+               now - pressure_sensor_last_status_poll_ms >=
+                   SENSOR_STATUS_POLL_INTERVAL_MS) {
+        pressure_sensor_last_status_poll_ms = now;
+        uint8_t status = 0;
+        if (!pressure_sensor_read_register(
+                SENSOR_COMMAND_REGISTER, status)) {
+            pressure_sensor_record_error("read conversion status");
+        } else if ((status & SENSOR_CONVERSION_BUSY_MASK) == 0) {
+            float pressure_kpa = 0.0f;
+            float temperature_c = 0.0f;
+            int32_t raw_counts = 0;
+            pressure_sensor_conversion_pending = false;
+
+            if (!pressure_sensor_read_result(
+                    pressure_kpa, temperature_c, raw_counts)) {
+                pressure_sensor_record_error("read measurement");
+            } else if (pressure_kpa < SENSOR_MIN_PLAUSIBLE_KPA ||
+                       pressure_kpa > SENSOR_MAX_PLAUSIBLE_KPA ||
+                       temperature_c < -40.0f ||
+                       temperature_c > 125.0f) {
+                pressure_sensor_record_error("implausible measurement");
+            } else {
+                pressure_sensor_sample_kpa = pressure_kpa;
+                pressure_sensor_temperature_c = temperature_c;
+                pressure_sensor_raw_counts = raw_counts;
+                pressure_sensor_last_valid_ms = now;
+                pressure_sensor_data_valid = true;
+                pressure_sensor_consecutive_errors = 0;
+
+                if (!sensor_filter_initialized) {
+                    pressure_sensor_filtered_kpa = pressure_kpa;
+                    sensor_filter_initialized = true;
+                } else {
+                    pressure_sensor_filtered_kpa +=
+                        SENSOR_FILTER_ALPHA *
+                        (pressure_kpa - pressure_sensor_filtered_kpa);
+                }
+            }
+        } else if (now - pressure_sensor_conversion_started_ms >
+                   SENSOR_CONVERSION_TIMEOUT_MS) {
+            pressure_sensor_record_error("conversion timeout");
+        }
     }
 
-    float measured_mv = mv_sum / (float)SENSOR_SAMPLE_COUNT;
-    last_sensor_sample_mv = (uint16_t)measured_mv;
-    if (!sensor_filter_initialized) {
-        filtered_sensor_mv = measured_mv;
-        sensor_filter_initialized = true;
-    } else {
-        filtered_sensor_mv += SENSOR_FILTER_ALPHA * (measured_mv - filtered_sensor_mv);
+    if (!pressure_sensor_data_valid ||
+        now - pressure_sensor_last_valid_ms > SENSOR_STALE_TIMEOUT_MS) {
+        return 0.0f;
     }
-    last_sensor_mv = (uint16_t)lroundf(filtered_sensor_mv);
 
     float pressure;
-    if (last_sensor_mv <= sensor_atmosphere_mv) {
-        pressure = mapf(last_sensor_mv,
-                        display_sensor_min_mv, sensor_atmosphere_mv,
-                        display_min_pressure, 0.0f);
+    if (pressure_unit == PRESSURE_UNIT_BAR) {
+        pressure = pressure_sensor_filtered_kpa / 100.0f;
     } else {
-        pressure = mapf(last_sensor_mv,
-                        sensor_atmosphere_mv, display_sensor_max_mv,
-                        0.0f, display_max_pressure);
+        pressure = pressure_sensor_filtered_kpa * PSI_PER_BAR / 100.0f;
     }
 
     if (fabsf(pressure) < display_zero_deadband) pressure = 0.0f;
     return clampf(pressure, display_min_pressure, display_max_pressure);
 }
 
-void prime_pressure_sensor()
+void initialize_pressure_sensor()
 {
-    // Descarta la carga residual del ADC tras permanecer inactivo durante el splash.
-    for (int sample = 0; sample < 12; ++sample) {
-        (void)analogRead(PRESSURE_SENSOR_PIN);
-        delayMicroseconds(150);
+    Wire.setClock(SHARED_I2C_FREQUENCY_HZ);
+    pressure_sensor_present = pressure_sensor_probe();
+    pressure_sensor_last_probe_ms = millis();
+    pressure_sensor_last_request_ms =
+        millis() - SENSOR_SAMPLE_INTERVAL_MS;
+
+    if (!pressure_sensor_present) {
+        Serial.println("XGZP6847D not found at 0x6D");
+        return;
     }
+
+    Serial.println(
+        "XGZP6847D detected: 0x6D, range=-100..300 kPa, K=16");
 }
 
 // =========================
@@ -2590,7 +3027,7 @@ bool update_startup_sequence(uint32_t now)
         update_boost_ui(filtered_pressure);
 
         if (elapsed >= STARTUP_SWEEP_UP_MS) {
-            startup_sweep_target_pressure = display_min_pressure;
+            startup_sweep_target_pressure = 0.0f;
             startup_phase = STARTUP_SWEEP_DOWN;
             startup_phase_started_ms = now;
         }
@@ -2606,7 +3043,6 @@ bool update_startup_sequence(uint32_t now)
     if (elapsed >= STARTUP_SWEEP_DOWN_MS) {
         filtered_pressure = startup_sweep_target_pressure;
         update_boost_ui(filtered_pressure);
-        prime_pressure_sensor();
         startup_phase = STARTUP_COMPLETE;
     }
     return true;
@@ -2621,8 +3057,14 @@ void setup()
     Serial.begin(115200);
     Serial.println("Boot...");
     load_pressure_unit();
+    load_sensor_temperature_setting();
+    load_screen_brightness();
     Serial.printf("Unit: %s\n",
                   pressure_unit == PRESSURE_UNIT_BAR ? "BAR" : "PSI");
+    Serial.printf(
+        "Sensor temperature display: %s\n",
+        sensor_temperature_enabled ? "ON" : "OFF");
+    Serial.printf("Brightness: %u\n", screen_brightness);
 #if ENABLE_PERF_TELEMETRY
     esp_rom_printf(
         "Memory: flash=%lu MB, psram=%lu MB, free_psram=%lu KB\n",
@@ -2633,13 +3075,6 @@ void setup()
 
     pinMode(LCD_EN, OUTPUT);
     digitalWrite(LCD_EN, HIGH);
-
-    // ADC
-    analogReadResolution(12);
-    analogSetPinAttenuation(PRESSURE_SENSOR_PIN, ADC_11db);
-    delay(20);
-    prime_pressure_sensor();
-    calibrate_pressure_zero();
 
     // Display
     gfx->begin(80000000);
@@ -2672,15 +3107,18 @@ void setup()
     disp_drv.draw_buf = &draw_buf;
     lv_disp_drv_register(&disp_drv);
 
-    // Touch
-    if (FT3168->begin()) {
-        FT3168->IIC_Write_Device_State(
-            FT3168->Arduino_IIC_Touch::Device::TOUCH_POWER_MODE,
-            FT3168->Arduino_IIC_Touch::Device_Mode::TOUCH_POWER_ACTIVE);
-        Serial.printf("FT3168 ready, ID: %#X\n", (int)FT3168->IIC_Read_Device_ID());
+    // Shared I2C / touch, following the Waveshare board demo.
+    if (Wire.begin(
+            IIC_SDA, IIC_SCL, SHARED_I2C_FREQUENCY_HZ)) {
+        touch_controller_ready = initialize_touch_controller();
+        Serial.println(
+            touch_controller_ready
+                ? "FT3168 ready: grouped polling, active mode"
+                : "FT3168 initialization failed");
     } else {
-        Serial.println("FT3168 initialization failed");
+        Serial.println("Shared I2C initialization failed");
     }
+    initialize_pressure_sensor();
 
     static lv_indev_drv_t indev_drv;
     lv_indev_drv_init(&indev_drv);
@@ -2746,6 +3184,7 @@ void loop()
     }
 
     const uint32_t now = millis();
+    service_touch_controller(now);
     const uint32_t now_us = micros();
     if (next_gauge_frame_us == 0) next_gauge_frame_us = now_us;
     const bool gauge_frame_due =
@@ -2772,13 +3211,16 @@ void loop()
     }
 #endif
 
+    const float live_pressure = read_boost_pressure();
+    update_sensor_temperature_display(now);
+
     if (gauge_frame_due) {
         float pressure;
         if (gauge_mode == GAUGE_MODE_SHOW) {
             pressure = show_boost_pressure(now);
             filtered_pressure = pressure;
         } else {
-            pressure = read_boost_pressure();
+            pressure = live_pressure;
             // Modo real: representar la lectura del sensor sin interpolacion visual.
             filtered_pressure = pressure;
         }
@@ -2788,10 +3230,15 @@ void loop()
         if (gauge_mode == GAUGE_MODE_LIVE && now - last_serial_ms >= SERIAL_UPDATE_MS) {
             last_serial_ms = now;
             Serial.printf(
-                "sensor: sample_mv=%u, filtered_mv=%u, %s=%.3f\n",
-                last_sensor_sample_mv, last_sensor_mv,
+                "sensor: raw=%ld, kpa=%.3f, filtered_kpa=%.3f, "
+                "temp=%.2f C, %s=%.3f, errors=%lu\n",
+                (long)pressure_sensor_raw_counts,
+                pressure_sensor_sample_kpa,
+                pressure_sensor_filtered_kpa,
+                pressure_sensor_temperature_c,
                 pressure_unit == PRESSURE_UNIT_BAR ? "bar" : "psi",
-                filtered_pressure);
+                filtered_pressure,
+                (unsigned long)pressure_sensor_error_count);
         }
     }
 
