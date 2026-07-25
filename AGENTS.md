@@ -9,8 +9,8 @@ otherwise.
 
 This is a hardware-tested turbo boost gauge for the Waveshare
 ESP32-S3-Touch-AMOLED-1.43 (466x466 SH8601 AMOLED with FT3168 touch). The board
-is mounted with the USB connector facing down. Release `v1.1.0` is the current
-public baseline.
+is mounted with the USB connector facing down. Release `v1.2.0` is the current
+public baseline. The production-hardening target is `v1.2.1`.
 
 The visual renderer is considered stable and artifact-free. Read these before
 changing rendering, display transfer, touch transforms, or assets:
@@ -104,8 +104,8 @@ These rules protect the hardware-verified result:
   `brightness`; save slider changes only on release and avoid redundant writes.
 - Keep SHOW/demo mode disabled by default.
 - Production builds must leave `ENABLE_PERF_TELEMETRY`,
-  `ENABLE_RENDER_DIAGNOSTICS`, `DUMP_PREBAKED_FRAMES` and `DUMP_BAKED_CACHE`
-  set to `0`.
+  `ENABLE_RENDER_DIAGNOSTICS`, `ENABLE_HARDWARE_TELEMETRY`,
+  `DUMP_PREBAKED_FRAMES` and `DUMP_BAKED_CACHE` set to `0`.
 - Preserve the five-second boot screen and smooth up/down startup sweep. The
   transition to LIVE must not flash briefly to maximum pressure.
 
@@ -143,6 +143,8 @@ at 60 Hz. Pressure and temperature are read as one contiguous five-byte block.
   menu zero calibration; preserve the opt-in, persistent five-second
   sensor-temperature display and LIVE/SHOW switching.
 - Keep missing, stale, invalid and implausible readings non-blocking.
+- Keep the delayed `ERR` warning for sensor readings unavailable for more than
+  one second and the `MAX` warning above the 30 PSI display range.
 - Keep FT3168 polling grouped into Waveshare's two I2C transactions so touch
   and pressure acquisition can reliably share the bus.
 - Bench tests verified zero-pressure stability, temperature acquisition,
@@ -166,10 +168,10 @@ If `pio` is not on PATH on Windows:
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run --target upload --upload-port COM6
 ```
 
-Expected release-build baseline near `v1.1.0`:
+Expected release-build baseline near `v1.2.0`:
 
-- Internal RAM: about 72.1 KB.
-- Flash: about 1.435 MB of the 6.55 MB application partition.
+- Internal RAM: about 65.3 KB.
+- Flash: about 1.180 MB of the 6.55 MB application partition.
 - Normal warnings from the vendored Arduino_GFX library about
   `SPI_MAX_PIXELS_AT_ONCE` are pre-existing; investigate new warnings.
 
@@ -235,8 +237,8 @@ Before publishing a release:
 - Include both GIFs, boot PNG, release README and `SHA256SUMS.txt`.
 - Verify the application image with `esptool.py image_info`.
 - Verify the packaged application hash matches `.pio/build/src/firmware.bin`.
-- Keep release notes in English and state that sensor integration is WIP until
-  it has actually been completed and hardware-tested.
+- Keep release notes in English and describe sensor validation accurately;
+  never call integration complete before it has been hardware-tested.
 
 ## Change Discipline
 

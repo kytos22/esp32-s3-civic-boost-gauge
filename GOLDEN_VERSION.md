@@ -13,10 +13,12 @@ Status: Verified by hardware observation
 - Diagnostic telemetry is disabled for normal use.
 - Brightness slider follows the visually rotated control 1:1.
 - Brightness controls verified on the 466x466 FT3168 touch panel.
+- XGZP6847D pressure and temperature acquisition verified on the shared I2C bus.
+- FT3168 touch keepalive verified alongside 100 Hz sensor acquisition.
 - Compiled recovery and application images are stored in `firmware/1.0.0/`.
 
-The final pressure-sensor calibration remains pending until the replacement
-sensor is installed.
+The factory-calibrated digital pressure result is used directly without
+software zero calibration.
 
 Do not change the rendering or display-transfer path without making a new
 backup first.

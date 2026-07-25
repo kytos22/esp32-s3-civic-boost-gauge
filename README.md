@@ -10,15 +10,15 @@ screen. An initial sweep runs before live sensor readings begin.
 
 ## PSI gauge demo
 
-![Civic boost gauge PSI demo](firmware/1.2.0/civic-boost-gauge-psi-demo.gif)
+![Civic boost gauge PSI demo](firmware/1.2.1/civic-boost-gauge-psi-demo.gif)
 
 ## BAR gauge demo
 
-![Civic boost gauge BAR demo](firmware/1.2.0/civic-boost-gauge-bar-demo.gif)
+![Civic boost gauge BAR demo](firmware/1.2.1/civic-boost-gauge-bar-demo.gif)
 
 ## Boot screen
 
-![Honda Civic boot screen](firmware/1.2.0/civic-boost-gauge-boot.png)
+![Honda Civic boot screen](firmware/1.2.1/civic-boost-gauge-boot.png)
 
 ## Features
 
@@ -33,6 +33,8 @@ screen. An initial sweep runs before live sensor readings begin.
   persistent sensor-temperature switch.
 - 75% default display brightness with persistent menu adjustments.
 - Hardware-tested XGZP6847D digital pressure and temperature acquisition.
+- Visible `ERR` warning after one second without a valid sensor reading.
+- Visible `MAX` warning when pressure exceeds the 30 PSI display range.
 
 ## Pressure sensor
 
@@ -48,10 +50,11 @@ software zero calibration at startup or in the menu. The sensor's internal
 temperature display is disabled by default and can be enabled permanently with
 the menu's `TEMP: OFF/ON` button. When enabled, its large readout is shown
 between the Civic logo and pressure unit and is refreshed every five seconds.
-Invalid, stale or missing readings safely resolve to zero without blocking the
-display, and the sensor is periodically reprobed after a bus failure. Pressure,
-temperature and error counters are available over USB serial for hardware
-validation.
+Invalid, stale or missing readings remain non-blocking and show `ERR` after one
+second, while the sensor is periodically reprobed after a bus failure. Pressure
+above the 30 PSI display limit is clamped safely and marked with `MAX`.
+Production builds keep continuous touch and sensor telemetry disabled; boot,
+error and recovery messages remain available over USB serial.
 
 ## Hardware
 
@@ -92,7 +95,7 @@ sensor path. It documents the verified architecture, invariants and validation
 workflows used by this project.
 
 The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
-1.2 firmware images and both gauge GIFs are in `firmware/1.2.0/`.
+1.2.1 firmware images and both gauge GIFs are in `firmware/1.2.1/`.
 
 ## Prebaked cache
 
