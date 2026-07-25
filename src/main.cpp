@@ -16,6 +16,7 @@
 
 #define ENABLE_PERF_TELEMETRY 0
 #define ENABLE_RENDER_DIAGNOSTICS 0
+#define ENABLE_HARDWARE_TELEMETRY 0
 #define DUMP_PREBAKED_FRAMES 0
 #define DUMP_BAKED_CACHE 0
 
@@ -51,9 +52,13 @@ static const uint32_t TOUCH_KEEPALIVE_INTERVAL_MS = 1000;
 static bool touch_controller_ready = false;
 static uint32_t touch_i2c_error_count = 0;
 static uint8_t touch_i2c_consecutive_errors = 0;
+#if ENABLE_HARDWARE_TELEMETRY
 static uint32_t touch_press_count = 0;
+#endif
 static uint32_t touch_last_keepalive_ms = 0;
+#if ENABLE_HARDWARE_TELEMETRY
 static bool touch_was_pressed = false;
+#endif
 
 // =========================
 // LVGL buffer
@@ -162,7 +167,6 @@ static const float PSI_PER_BAR = 14.5037738f;
 static const uint8_t SENSOR_I2C_ADDRESS = 0x6D;
 static const uint8_t SENSOR_COMMAND_REGISTER = 0x30;
 static const uint8_t SENSOR_PRESSURE_MSB_REGISTER = 0x06;
-static const uint8_t SENSOR_TEMPERATURE_MSB_REGISTER = 0x09;
 static const uint8_t SENSOR_START_COMBINED_CONVERSION = 0x0A;
 static const uint8_t SENSOR_CONVERSION_BUSY_MASK = 0x08;
 static const float SENSOR_COUNTS_PER_PA = 16.0f;
@@ -177,6 +181,8 @@ static const uint32_t SENSOR_CONVERSION_TIMEOUT_MS = 35;
 static const uint32_t SENSOR_STALE_TIMEOUT_MS = 1000;
 static const uint32_t SENSOR_REPROBE_INTERVAL_MS = 1000;
 static const uint32_t SENSOR_TEMPERATURE_DISPLAY_INTERVAL_MS = 5000;
+static const float SENSOR_OVERRANGE_PSI = 30.0f;
+static const float SENSOR_OVERRANGE_CLEAR_PSI = 29.5f;
 
 // Centro y radio del gauge
 // Native framebuffer orientation with the USB connector at the bottom.
@@ -217,7 +223,9 @@ static const uint32_t STARTUP_SWEEP_UP_MS = 1300;
 static const uint32_t STARTUP_SWEEP_DOWN_MS = 1400;
 static const uint32_t GAUGE_FRAME_PERIOD_US = 16667;
 static const uint32_t VALUE_UPDATE_MS = 33;
+#if ENABLE_HARDWARE_TELEMETRY
 static const uint32_t SERIAL_UPDATE_MS = 200;
+#endif
 #if ENABLE_PERF_TELEMETRY
 static const uint32_t PERF_UPDATE_MS = 2000;
 #endif
@@ -245,6 +253,10 @@ static bool sensor_filter_initialized = false;
 static bool sensor_temperature_enabled = false;
 static uint32_t sensor_temperature_last_display_ms = 0;
 static char sensor_temperature_display_text[16] = "--.- C";
+static bool pressure_sensor_overrange = false;
+static bool pressure_sensor_fault_displayed = false;
+static bool pressure_sensor_overrange_displayed = false;
+static uint32_t pressure_sensor_unavailable_since_ms = 0;
 
 enum GaugeMode {
     GAUGE_MODE_LIVE,
@@ -1012,7 +1024,23 @@ void clear_static_label(const char *text, float value,
 void prepare_static_gauge_frame()
 {
     apply_prebaked_visual(static_frame, PREBAKED_GAUGE_VISUAL);
-    if (sensor_temperature_enabled) {
+    if (gauge_mode == GAUGE_MODE_LIVE &&
+        pressure_sensor_fault_displayed) {
+        draw_static_text(
+            "ERR",
+            &lv_font_montserrat_32,
+            233,
+            209,
+            lv_palette_main(LV_PALETTE_RED));
+    } else if (gauge_mode == GAUGE_MODE_LIVE &&
+               pressure_sensor_overrange_displayed) {
+        draw_static_text(
+            "MAX",
+            &lv_font_montserrat_32,
+            233,
+            360,
+            lv_palette_main(LV_PALETTE_RED));
+    } else if (sensor_temperature_enabled) {
         draw_static_text(
             sensor_temperature_display_text,
             &lv_font_montserrat_32,
@@ -1097,8 +1125,11 @@ void update_sensor_temperature_display(uint32_t now)
         sizeof(sensor_temperature_display_text));
     sensor_temperature_display_text[
         sizeof(sensor_temperature_display_text) - 1] = '\0';
-    prepare_static_gauge_frame();
-    gauge_restore_pending = true;
+    if (!pressure_sensor_fault_displayed &&
+        !pressure_sensor_overrange_displayed) {
+        prepare_static_gauge_frame();
+        gauge_restore_pending = true;
+    }
 }
 
 void display_prebaked_visual(const PrebakedVisual &visual)
@@ -2115,7 +2146,9 @@ void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
         TOUCH_FINGER_COUNT_REGISTER, &finger_count, 1);
     touch_record_i2c_result(finger_read_ok, "read finger count");
     if (!finger_read_ok || finger_count == 0) {
+#if ENABLE_HARDWARE_TELEMETRY
         touch_was_pressed = false;
+#endif
         data->state = LV_INDEV_STATE_REL;
         return;
     }
@@ -2137,6 +2170,7 @@ void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
     data->state = LV_INDEV_STATE_PR;
     data->point.x = touch_x < LCD_WIDTH ? touch_x : LCD_WIDTH - 1;
     data->point.y = touch_y < LCD_HEIGHT ? touch_y : LCD_HEIGHT - 1;
+#if ENABLE_HARDWARE_TELEMETRY
     if (!touch_was_pressed) {
         touch_was_pressed = true;
         ++touch_press_count;
@@ -2146,6 +2180,7 @@ void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
             (int)data->point.y,
             (unsigned long)touch_press_count);
     }
+#endif
 }
 
 // =========================
@@ -2658,6 +2693,8 @@ void show_mode_event(lv_event_t *event)
 
     gauge_mode = (gauge_mode == GAUGE_MODE_LIVE) ? GAUGE_MODE_SHOW : GAUGE_MODE_LIVE;
     show_started_ms = millis();
+    prepare_static_gauge_frame();
+    gauge_restore_pending = true;
 
     if (gauge_mode == GAUGE_MODE_SHOW) {
         Serial.println("Mode: SHOW");
@@ -2896,6 +2933,14 @@ float read_boost_pressure()
                         SENSOR_FILTER_ALPHA *
                         (pressure_kpa - pressure_sensor_filtered_kpa);
                 }
+
+                const float filtered_psi =
+                    pressure_sensor_filtered_kpa * PSI_PER_BAR / 100.0f;
+                if (filtered_psi > SENSOR_OVERRANGE_PSI) {
+                    pressure_sensor_overrange = true;
+                } else if (filtered_psi < SENSOR_OVERRANGE_CLEAR_PSI) {
+                    pressure_sensor_overrange = false;
+                }
             }
         } else if (now - pressure_sensor_conversion_started_ms >
                    SENSOR_CONVERSION_TIMEOUT_MS) {
@@ -2917,6 +2962,41 @@ float read_boost_pressure()
 
     if (fabsf(pressure) < display_zero_deadband) pressure = 0.0f;
     return clampf(pressure, display_min_pressure, display_max_pressure);
+}
+
+bool pressure_sensor_reading_available(uint32_t now)
+{
+    return pressure_sensor_present &&
+           pressure_sensor_data_valid &&
+           now - pressure_sensor_last_valid_ms <= SENSOR_STALE_TIMEOUT_MS;
+}
+
+void update_pressure_sensor_status_display(uint32_t now)
+{
+    const bool reading_available =
+        pressure_sensor_reading_available(now);
+    bool show_fault = false;
+
+    if (reading_available) {
+        pressure_sensor_unavailable_since_ms = 0;
+    } else if (pressure_sensor_unavailable_since_ms == 0) {
+        pressure_sensor_unavailable_since_ms = now;
+    } else if (now - pressure_sensor_unavailable_since_ms >=
+               SENSOR_STALE_TIMEOUT_MS) {
+        show_fault = true;
+    }
+
+    const bool show_overrange =
+        reading_available && pressure_sensor_overrange;
+    if (show_fault == pressure_sensor_fault_displayed &&
+        show_overrange == pressure_sensor_overrange_displayed) {
+        return;
+    }
+
+    pressure_sensor_fault_displayed = show_fault;
+    pressure_sensor_overrange_displayed = show_overrange;
+    prepare_static_gauge_frame();
+    gauge_restore_pending = true;
 }
 
 void initialize_pressure_sensor()
@@ -2983,9 +3063,12 @@ void update_boost_ui(float pressure_value)
     if (update_value) {
         last_value_update_ms = now;
 
-        char txt[16];
-        snprintf(txt, sizeof(txt), "%.1f", pressure_value);
-        render_prebaked_value(txt, false);
+        if (gauge_mode != GAUGE_MODE_LIVE ||
+            !pressure_sensor_fault_displayed) {
+            char txt[16];
+            snprintf(txt, sizeof(txt), "%.1f", pressure_value);
+            render_prebaked_value(txt, false);
+        }
     }
 
     render_prebaked_gauge(pressure_value, update_value);
@@ -3156,7 +3239,9 @@ void setup()
 void loop()
 {
     static uint32_t next_gauge_frame_us = 0;
+#if ENABLE_HARDWARE_TELEMETRY
     static uint32_t last_serial_ms = 0;
+#endif
 #if ENABLE_PERF_TELEMETRY
     static uint32_t last_perf_ms = 0;
 
@@ -3212,6 +3297,7 @@ void loop()
 #endif
 
     const float live_pressure = read_boost_pressure();
+    update_pressure_sensor_status_display(now);
     update_sensor_temperature_display(now);
 
     if (gauge_frame_due) {
@@ -3227,7 +3313,9 @@ void loop()
 
         update_boost_ui(filtered_pressure);
 
-        if (gauge_mode == GAUGE_MODE_LIVE && now - last_serial_ms >= SERIAL_UPDATE_MS) {
+#if ENABLE_HARDWARE_TELEMETRY
+        if (gauge_mode == GAUGE_MODE_LIVE &&
+            now - last_serial_ms >= SERIAL_UPDATE_MS) {
             last_serial_ms = now;
             Serial.printf(
                 "sensor: raw=%ld, kpa=%.3f, filtered_kpa=%.3f, "
@@ -3240,6 +3328,7 @@ void loop()
                 filtered_pressure,
                 (unsigned long)pressure_sensor_error_count);
         }
+#endif
     }
 
     delay(1);
