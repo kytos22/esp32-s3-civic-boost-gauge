@@ -24,9 +24,6 @@
 #define IIC_SDA 47
 #define IIC_SCL 48
 
-// TOUCH
-#define TP_INT 16
-
 // Battery Voltage ADC
 #define BATTERY_VOLTAGE_ADC_DATA 4
 
@@ -38,6 +35,3 @@
 
 // PCF8563
 #define PCF8563_INT 15
-
-// pressure sensor
-#define PRESSURE_SENSOR_PIN 1

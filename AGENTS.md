@@ -20,13 +20,13 @@ changing rendering, display transfer, touch transforms, or assets:
 3. `src/main.cpp`
 4. `lib/Mylibrary/pin_config.h`
 
-The final XGZP6847D pressure-sensor integration is still WIP. Preserve the
-working renderer while implementing it.
+The XGZP6847D pressure-sensor acquisition is integrated and bench-tested.
+Preserve both the working renderer and the validated sensor/touch bus behavior.
 
 ## Repository Map
 
 - `src/main.cpp`: firmware, startup sequence, touch UI, pressure units, sensor
-  fallback, prebaked renderer and display flush path.
+  acquisition, prebaked renderer and display flush path.
 - `platformio.ini`: ESP32-S3 build, 240 MHz CPU, 80 MHz flash/QSPI settings,
   OPI PSRAM and core assignment.
 - `lib/Mylibrary/pin_config.h`: authoritative board pin mapping.
@@ -48,15 +48,14 @@ working renderer while implementing it.
 - Display: SH8601, 466x466, QSPI.
 - Touch: FT3168 over I2C.
 - I2C pins: SDA GPIO 47, SCL GPIO 48.
-- Current analog pressure fallback: GPIO 1.
-- Planned sensor: XGZP6847D I2C, bidirectional `-100 to +300 kPa`, address
-  `0x6D`, supply range `2.5 to 5.5 V`.
+- Pressure sensor: XGZP6847D300KPGPN I2C, bidirectional `-100 to +300 kPa`,
+  address `0x6D`, powered from 3.3 V, V2.x transfer factor `K=16`.
 - CPU: 240 MHz.
 - Arduino `setup()`/`loop()` and Arduino events run on core 1. No project task
   currently uses core 0 explicitly.
 
-Never expose an ESP32-S3 GPIO or ADC input to more than 3.3 V. A 5 V analog
-sensor requires a suitable divider or signal conditioner.
+Never expose an ESP32-S3 GPIO to more than 3.3 V. Keep the shared I2C pull-ups
+and the pressure sensor supply at 3.3 V.
 
 ## Rendering Architecture
 
@@ -101,6 +100,8 @@ These rules protect the hardware-verified result:
   string, which causes visible lateral movement.
 - Keep PSI as the default unit. Store the selection in Preferences namespace
   `boost-gauge`, key `unit`, and write only when it changes.
+- Keep 75% as the default brightness. Store menu changes in Preferences key
+  `brightness`; save slider changes only on release and avoid redundant writes.
 - Keep SHOW/demo mode disabled by default.
 - Production builds must leave `ENABLE_PERF_TELEMETRY`,
   `ENABLE_RENDER_DIAGNOSTICS`, `DUMP_PREBAKED_FRAMES` and `DUMP_BAKED_CACHE`
@@ -115,31 +116,39 @@ doubt, regenerate the cache and test both directions of the full sweep.
 ## Touch Invariants
 
 - Raw FT3168 coordinates are already correct for the native display setup.
+- Follow Waveshare's polling layout: write normal mode to register `0x00`,
+  poll finger count at `0x02`, then read the four X/Y bytes as one block from
+  `0x03`. Keep power mode `0xA5` active and automatic monitor register `0x86`
+  disabled, and refresh both every second on the 300 kHz shared bus; pure demo
+  initialization eventually NACKed on the shared live bus. The board demo
+  declares no touch interrupt; do not assign GPIO 16 as `TP_INT`.
 - The menu is visually rotated by `900` LVGL tenths of a degree.
 - The brightness slider projects the touch point onto its transformed visual
   axis. Do not replace this with an untransformed X/Y lookup.
 - Keep controls finger-sized and avoid overlapping extended click areas.
 - Test Civic click, Civic long press, close, PSI/BAR buttons, slider, `+`/`-`
-  buttons and zero calibration after touch changes.
+  buttons and the persistent `TEMP: OFF/ON` control after touch changes.
 
 ## Sensor Work
 
-The analog path is temporary. It averages ADC samples, applies a simple filter,
-calibrates atmospheric zero and maps millivolts directly into the active unit.
-Do not add a PSI-to-BAR conversion in the render loop.
+The XGZP6847D integration starts combined conversions through register `0x30`,
+reads signed 24-bit pressure and signed 16-bit temperature, and applies the
+documented `K=16` conversion for the `+300 kPa` positive range. Sampling runs
+at up to 100 Hz through a non-blocking state machine while the display remains
+at 60 Hz. Pressure and temperature are read as one contiguous five-byte block.
 
-When the XGZP6847D arrives:
-
-- Implement I2C acquisition at the sensor boundary.
-- Confirm the exact purchased range and transfer function before coding it.
-- Convert the sensor's canonical Pa/kPa result once per sensor sample into the
-  active display unit.
-- Keep sensor sampling independent of the 60 Hz display schedule where useful,
-  but do not call LVGL or mutate framebuffers from a second core/task.
-- Preserve startup zero behavior, menu calibration feedback and LIVE/SHOW
-  switching.
-- Handle missing sensor, invalid status and implausible values without blocking
-  the UI.
+- Keep pressure filtering in canonical kPa and convert only at the sensor/UI
+  boundary.
+- Use the factory-calibrated pressure value directly. Do not add startup or
+  menu zero calibration; preserve the opt-in, persistent five-second
+  sensor-temperature display and LIVE/SHOW switching.
+- Keep missing, stale, invalid and implausible readings non-blocking.
+- Keep FT3168 polling grouped into Waveshare's two I2C transactions so touch
+  and pressure acquisition can reliably share the bus.
+- Bench tests verified zero-pressure stability, temperature acquisition,
+  positive and negative pressure response, and shared-bus touch stability
+  without XGZP or FT3168 errors. Full automotive manifold validation remains
+  recommended.
 
 ## Build And Flash
 

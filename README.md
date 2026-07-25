@@ -10,15 +10,15 @@ screen. An initial sweep runs before live sensor readings begin.
 
 ## PSI gauge demo
 
-![Civic boost gauge PSI demo](firmware/1.1.0/civic-boost-gauge-psi-demo.gif)
+![Civic boost gauge PSI demo](firmware/1.2.0/civic-boost-gauge-psi-demo.gif)
 
 ## BAR gauge demo
 
-![Civic boost gauge BAR demo](firmware/1.1.0/civic-boost-gauge-bar-demo.gif)
+![Civic boost gauge BAR demo](firmware/1.2.0/civic-boost-gauge-bar-demo.gif)
 
 ## Boot screen
 
-![Honda Civic boot screen](firmware/1.1.0/civic-boost-gauge-boot.png)
+![Honda Civic boot screen](firmware/1.2.0/civic-boost-gauge-boot.png)
 
 ## Features
 
@@ -29,30 +29,45 @@ screen. An initial sweep runs before live sensor readings begin.
 - Versioned cache format with size, ABI and CRC validation.
 - Five-second Honda/Civic startup screen and initial sweep.
 - Capacitive touch on the Civic logo to toggle SHOW mode.
-- Long press on the Civic logo for unit selection, brightness and zero calibration.
-- 75% default display brightness.
-- Sensor input is currently WIP while the replacement sensor is in transit.
+- Long press on the Civic logo for unit selection, brightness and the
+  persistent sensor-temperature switch.
+- 75% default display brightness with persistent menu adjustments.
+- Hardware-tested XGZP6847D digital pressure and temperature acquisition.
 
 ## Pressure sensor
 
-The planned turbo sensor is the **XGZP6847D I2C**, using the bidirectional
-`-100 to +300 kPa` variant. It accepts `2.5 to 5.5 V`, uses the I2C address
-`0x6D`, and is suitable for the gauge's `-15 to 30 PSI` range. The final
-firmware integration and calibration will be completed when the sensor arrives.
+The turbo sensor is the **XGZP6847D300KPGPN I2C**, using the bidirectional
+`-100 to +300 kPa` range. It is powered from 3.3 V, uses address `0x6D` and the
+V2.x `K=16` transfer factor. The firmware samples it independently at up to
+100 Hz, converts its signed 24-bit result to kPa, filters the canonical pressure
+and then updates the active PSI or BAR display while the renderer remains at
+60 Hz.
 
-Until then, the live firmware keeps the existing analog input path on GPIO 1
-for bench testing; the SHOW mode is available without a connected sensor.
-The analog path maps millivolts directly into the selected display unit, so BAR
-mode does not perform a PSI-to-BAR conversion on every frame.
+The factory-calibrated digital pressure value is used directly; there is no
+software zero calibration at startup or in the menu. The sensor's internal
+temperature display is disabled by default and can be enabled permanently with
+the menu's `TEMP: OFF/ON` button. When enabled, its large readout is shown
+between the Civic logo and pressure unit and is refreshed every five seconds.
+Invalid, stale or missing readings safely resolve to zero without blocking the
+display, and the sensor is periodically reprobed after a bus failure. Pressure,
+temperature and error counters are available over USB serial for hardware
+validation.
 
 ## Hardware
 
 - Waveshare ESP32-S3-Touch-AMOLED-1.43.
-- Analog pressure sensor connected to GPIO 1.
+- XGZP6847D300KPGPN connected to the shared I2C bus on GPIO 47/48.
+- Sensor VDD connected to 3.3 V.
 - Common ground between the sensor and the ESP32-S3.
 
-The ESP32-S3 ADC must never receive more than 3.3 V. Use a suitable voltage
-divider or signal conditioner when powering a 5 V analog sensor.
+The onboard FT3168 uses Waveshare's grouped polling method on the 300 kHz shared
+bus: normal mode, one finger-count read and one grouped X/Y read per active
+touch. Active power mode is refreshed every second and automatic monitor entry
+is disabled because the pure demo initialization can stop acknowledging reads
+on the shared live bus.
+
+The sensor and I2C pull-ups must remain at 3.3 V. Do not apply 5 V to the SDA
+or SCL lines.
 
 ## Build
 
@@ -77,7 +92,7 @@ sensor path. It documents the verified architecture, invariants and validation
 workflows used by this project.
 
 The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
-1.1 firmware images and both gauge GIFs are in `firmware/1.1.0/`.
+1.2 firmware images and both gauge GIFs are in `firmware/1.2.0/`.
 
 ## Prebaked cache
 
