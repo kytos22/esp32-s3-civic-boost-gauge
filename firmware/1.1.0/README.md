@@ -1,5 +1,7 @@
 # Civic Boost Gauge 1.1 Firmware
 
+[Home](../../README.md) | [Español](README.es.md) | **English**
+
 This release adds a persistent PSI/BAR selector while preserving the verified
 prebaked 60 Hz rendering path.
 

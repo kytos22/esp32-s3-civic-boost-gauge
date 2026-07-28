@@ -1,0 +1,207 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f9fbff"/>
+      <stop offset="1" stop-color="#eaf0f8"/>
+    </linearGradient>
+    <linearGradient id="pcb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#176ca6"/>
+      <stop offset="1" stop-color="#083e69"/>
+    </linearGradient>
+    <linearGradient id="display" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#152235"/>
+      <stop offset="1" stop-color="#02050a"/>
+    </linearGradient>
+    <linearGradient id="sensorBody" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f5f6f8"/>
+      <stop offset="1" stop-color="#cbd2dc"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#20334e" flood-opacity=".20"/>
+    </filter>
+    <style>
+      .title { font: 700 44px Arial, sans-serif; fill: #132238; }
+      .subtitle { font: 400 22px Arial, sans-serif; fill: #53657d; }
+      .section { font: 700 25px Arial, sans-serif; fill: #132238; }
+      .label { font: 700 19px Arial, sans-serif; fill: #17283f; }
+      .small { font: 400 17px Arial, sans-serif; fill: #566980; }
+      .tiny { font: 400 15px Arial, sans-serif; fill: #60738a; }
+      .white { fill: #fff; }
+      .wire { fill: none; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+      .leader { fill: none; stroke: #7c8da2; stroke-width: 3; stroke-dasharray: 8 7; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#bg)"/>
+
+  <text x="800" y="62" text-anchor="middle" class="title">XGZP6847D WIRING DIAGRAM</text>
+  <text x="800" y="99" text-anchor="middle" class="subtitle">Waveshare ESP32-S3 Touch AMOLED 1.43 · Shared I²C bus · 300 kHz</text>
+
+  <!-- Circular Waveshare board -->
+  <g filter="url(#shadow)">
+    <circle cx="305" cy="438" r="248" fill="url(#pcb)" stroke="#062f51" stroke-width="8"/>
+    <circle cx="305" cy="438" r="191" fill="url(#display)" stroke="#7da1bd" stroke-width="6"/>
+    <circle cx="305" cy="438" r="219" fill="none" stroke="#54a7d8" stroke-width="2" stroke-dasharray="5 9"/>
+    <path d="M305 310 A128 128 0 0 1 421 493" fill="none" stroke="#e43c48" stroke-width="15" stroke-linecap="round"/>
+    <line x1="305" y1="438" x2="396" y2="391" stroke="#ff4c57" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="305" cy="438" r="11" fill="#ff4c57"/>
+    <text x="305" y="392" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#dce9f4">CIVIC</text>
+    <text x="305" y="477" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" font-weight="700" fill="#f4f8fb">0.0</text>
+    <text x="305" y="505" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#9eb2c6">PSI</text>
+
+    <!-- USB-C -->
+    <rect x="258" y="670" width="94" height="31" rx="9" fill="#c9d0d8" stroke="#41566c" stroke-width="3"/>
+    <rect x="276" y="678" width="58" height="15" rx="5" fill="#26394e"/>
+    <text x="305" y="727" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="700" fill="#d8ecfa">USB-C</text>
+
+    <!-- Small physical I2C connector -->
+    <g>
+      <rect x="476" y="251" width="73" height="56" rx="8" fill="#f8fafc" stroke="#a7b4c1" stroke-width="3"/>
+      <rect x="487" y="260" width="51" height="36" rx="4" fill="#dfe5eb"/>
+      <line x1="498" y1="264" x2="498" y2="292" stroke="#9b7b2f" stroke-width="4"/>
+      <line x1="509" y1="264" x2="509" y2="292" stroke="#9b7b2f" stroke-width="4"/>
+      <line x1="520" y1="264" x2="520" y2="292" stroke="#9b7b2f" stroke-width="4"/>
+      <line x1="531" y1="264" x2="531" y2="292" stroke="#9b7b2f" stroke-width="4"/>
+      <text x="512" y="239" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#fff">I²C</text>
+    </g>
+  </g>
+  <text x="305" y="151" text-anchor="middle" class="section">WAVESHARE CIRCULAR ESP32-S3</text>
+  <text x="305" y="177" text-anchor="middle" class="small">Front view · USB-C at the bottom</text>
+
+  <!-- Connector magnification -->
+  <path d="M549 279 C590 279 580 223 624 223" class="leader"/>
+  <g filter="url(#shadow)">
+    <rect x="612" y="150" width="306" height="448" rx="28" fill="#fff" stroke="#c6d1dd" stroke-width="3"/>
+  </g>
+  <text x="765" y="188" text-anchor="middle" class="section">4-PIN I²C CONNECTOR</text>
+  <text x="765" y="214" text-anchor="middle" class="small">SH1.0 / JST-style cable</text>
+  <text x="765" y="244" text-anchor="middle" class="tiny">PLUG CONTACT VIEW</text>
+
+  <g>
+    <path d="M680 267 H850 V559 H680 Z" fill="#e7ebf0" stroke="#99a9ba" stroke-width="4"/>
+    <path d="M714 254 H816 L832 267 H698 Z" fill="#f8fafc" stroke="#99a9ba" stroke-width="3"/>
+
+    <rect x="700" y="286" width="130" height="54" rx="8" fill="#e1f6eb" stroke="#20a566" stroke-width="3"/>
+    <circle cx="725" cy="313" r="9" fill="#20a566"/>
+    <text x="752" y="320" class="label">1 · SDA</text>
+
+    <rect x="700" y="350" width="130" height="54" rx="8" fill="#e1f0ff" stroke="#267fd1" stroke-width="3"/>
+    <circle cx="725" cy="377" r="9" fill="#267fd1"/>
+    <text x="752" y="384" class="label">2 · SCL</text>
+
+    <rect x="700" y="414" width="130" height="54" rx="8" fill="#e9edf2" stroke="#374151" stroke-width="3"/>
+    <circle cx="725" cy="441" r="9" fill="#374151"/>
+    <text x="752" y="448" class="label">3 · GND</text>
+
+    <rect x="700" y="478" width="130" height="54" rx="8" fill="#ffe5e7" stroke="#eb4651" stroke-width="3"/>
+    <circle cx="725" cy="505" r="9" fill="#eb4651"/>
+    <text x="752" y="512" class="label">4 · 3V3</text>
+  </g>
+  <text x="765" y="578" text-anchor="middle" class="tiny">Wire colors may vary — follow pin labels</text>
+
+  <!-- Sensor top view -->
+  <text x="1262" y="151" text-anchor="middle" class="section">XGZP6847D · 6-PIN PACKAGE</text>
+  <text x="1262" y="177" text-anchor="middle" class="small">TOP VIEW · pressure port facing you</text>
+
+  <!-- Wires behind sensor -->
+  <path d="M830 313 H965 V239 H1515 V467 H1448" class="wire" stroke="#20a566"/>
+  <path d="M830 377 H1032 V358 H1070" class="wire" stroke="#267fd1"/>
+  <path d="M830 441 H984 V559 H1070" class="wire" stroke="#374151"/>
+  <path d="M830 505 H950 V714 H1515 V559 H1448" class="wire" stroke="#eb4651"/>
+
+  <!-- Wire labels -->
+  <g>
+    <rect x="844" y="288" width="90" height="32" rx="16" fill="#fff" stroke="#20a566" stroke-width="2"/>
+    <text x="889" y="310" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#17804e">GPIO47</text>
+
+    <rect x="844" y="347" width="90" height="32" rx="16" fill="#fff" stroke="#267fd1" stroke-width="2"/>
+    <text x="889" y="369" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#1d67a9">GPIO48</text>
+  </g>
+
+  <!-- Sensor body -->
+  <g filter="url(#shadow)">
+    <!-- six leads -->
+    <rect x="1022" y="337" width="82" height="42" rx="6" fill="#b8c0ca" stroke="#657183" stroke-width="3"/>
+    <rect x="1022" y="438" width="82" height="42" rx="6" fill="#b8c0ca" stroke="#657183" stroke-width="3"/>
+    <rect x="1022" y="539" width="82" height="42" rx="6" fill="#b8c0ca" stroke="#657183" stroke-width="3"/>
+    <rect x="1420" y="337" width="82" height="42" rx="6" fill="#b8c0ca" stroke="#657183" stroke-width="3"/>
+    <rect x="1420" y="438" width="82" height="42" rx="6" fill="#b8c0ca" stroke="#657183" stroke-width="3"/>
+    <rect x="1420" y="539" width="82" height="42" rx="6" fill="#b8c0ca" stroke="#657183" stroke-width="3"/>
+
+    <rect x="1090" y="270" width="350" height="378" rx="30" fill="url(#sensorBody)" stroke="#647285" stroke-width="5"/>
+    <rect x="1120" y="302" width="290" height="314" rx="20" fill="#e7eaee" stroke="#9aa6b3" stroke-width="3"/>
+
+    <!-- top pressure port -->
+    <rect x="1217" y="214" width="96" height="120" rx="26" fill="#b6bec8" stroke="#657183" stroke-width="5"/>
+    <ellipse cx="1265" cy="218" rx="48" ry="23" fill="#8895a5" stroke="#566477" stroke-width="4"/>
+    <ellipse cx="1265" cy="218" rx="26" ry="11" fill="#313d4d"/>
+    <circle cx="1130" cy="312" r="8" fill="#17283f"/>
+
+    <text x="1265" y="407" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#26384e">XGZP6847D</text>
+    <text x="1265" y="439" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#5c6d80">DIGITAL PRESSURE SENSOR</text>
+    <text x="1265" y="503" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#6d7886">PIN 1 MARK</text>
+    <path d="M1198 498 H1145 V329" fill="none" stroke="#6d7886" stroke-width="3" stroke-dasharray="6 5"/>
+  </g>
+
+  <!-- Exact sensor pin labels -->
+  <g>
+    <rect x="945" y="326" width="135" height="64" rx="13" fill="#e1f0ff" stroke="#267fd1" stroke-width="3"/>
+    <text x="1012" y="353" text-anchor="middle" class="label">PIN 1</text>
+    <text x="1012" y="378" text-anchor="middle" class="label" fill="#1d67a9">SCL</text>
+
+    <rect x="945" y="427" width="135" height="64" rx="13" fill="#f1f3f5" stroke="#9ca7b3" stroke-width="3"/>
+    <text x="1012" y="454" text-anchor="middle" class="label">PIN 2</text>
+    <text x="1012" y="479" text-anchor="middle" class="label" fill="#7a8591">NC</text>
+
+    <rect x="945" y="528" width="135" height="64" rx="13" fill="#e9edf2" stroke="#374151" stroke-width="3"/>
+    <text x="1012" y="555" text-anchor="middle" class="label">PIN 3</text>
+    <text x="1012" y="580" text-anchor="middle" class="label">GND</text>
+
+    <rect x="1438" y="528" width="135" height="64" rx="13" fill="#ffe5e7" stroke="#eb4651" stroke-width="3"/>
+    <text x="1505" y="555" text-anchor="middle" class="label">PIN 4</text>
+    <text x="1505" y="580" text-anchor="middle" class="label" fill="#c92f39">VDD</text>
+
+    <rect x="1438" y="427" width="135" height="64" rx="13" fill="#e1f6eb" stroke="#20a566" stroke-width="3"/>
+    <text x="1505" y="454" text-anchor="middle" class="label">PIN 5</text>
+    <text x="1505" y="479" text-anchor="middle" class="label" fill="#17804e">SDA</text>
+
+    <rect x="1438" y="326" width="135" height="64" rx="13" fill="#f1f3f5" stroke="#9ca7b3" stroke-width="3"/>
+    <text x="1505" y="353" text-anchor="middle" class="label">PIN 6</text>
+    <text x="1505" y="378" text-anchor="middle" class="label" fill="#7a8591">NC</text>
+  </g>
+
+  <!-- NC crosses -->
+  <g stroke="#8c98a5" stroke-width="5" stroke-linecap="round">
+    <line x1="1028" y1="443" x2="1067" y2="476"/>
+    <line x1="1067" y1="443" x2="1028" y2="476"/>
+    <line x1="1457" y1="342" x2="1496" y2="375"/>
+    <line x1="1496" y1="342" x2="1457" y2="375"/>
+  </g>
+
+  <!-- Decoupling capacitor close to sensor -->
+  <g>
+    <circle cx="1083" cy="678" r="8" fill="#374151"/>
+    <path d="M1083 560 V678 H1196" fill="none" stroke="#374151" stroke-width="5"/>
+    <line x1="1199" y1="658" x2="1199" y2="698" stroke="#7447b6" stroke-width="7"/>
+    <line x1="1218" y1="658" x2="1218" y2="698" stroke="#7447b6" stroke-width="7"/>
+    <path d="M1221 678 H1450 V560" fill="none" stroke="#eb4651" stroke-width="5"/>
+    <circle cx="1450" cy="678" r="8" fill="#eb4651"/>
+    <rect x="1127" y="716" width="278" height="67" rx="15" fill="#f2ecff" stroke="#7447b6" stroke-width="3"/>
+    <text x="1266" y="744" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#60369f">100 nF CERAMIC CAPACITOR</text>
+    <text x="1266" y="769" text-anchor="middle" class="tiny" fill="#60369f">≥ 10 V · no polarity · close to the sensor</text>
+  </g>
+
+  <!-- Bottom notes -->
+  <g filter="url(#shadow)">
+    <rect x="88" y="823" width="1424" height="126" rx="25" fill="#fff" stroke="#d6dee8" stroke-width="2"/>
+  </g>
+  <circle cx="137" cy="866" r="20" fill="#eb4651"/>
+  <text x="137" y="874" text-anchor="middle" font-family="Arial, sans-serif" font-size="25" font-weight="700" fill="#fff">!</text>
+  <text x="174" y="861" class="section">IMPORTANT</text>
+  <text x="174" y="895" font-family="Arial, sans-serif" font-size="19" fill="#34465c">Pins 2 and 6 are NC. Leave them completely unconnected.</text>
+  <text x="174" y="925" font-family="Arial, sans-serif" font-size="19" fill="#34465c">Use 3.3 V only. Never apply 5 V or 12 V to VDD, SDA or SCL.</text>
+  <line x1="858" y1="849" x2="858" y2="925" stroke="#d8e0e9" stroke-width="2"/>
+  <text x="900" y="861" class="label">IN THE CAR</text>
+  <text x="900" y="895" font-family="Arial, sans-serif" font-size="18" fill="#34465c">Keep the I²C cable short (≤ 30 cm recommended)</text>
+  <text x="900" y="925" font-family="Arial, sans-serif" font-size="18" fill="#34465c">and away from ignition coils and power converters.</text>
+</svg>
