@@ -1,5 +1,7 @@
 # Civic Boost Gauge 1.2.1 Firmware
 
+[Home](../../README.md) | [Español](README.es.md) | **English**
+
 This is the production-hardened release of the bench-tested XGZP6847D digital
 boost gauge. It preserves the verified 60 Hz prebaked renderer, 100 Hz sensor
 acquisition and stable shared-bus FT3168 touch behavior from version 1.2.0.

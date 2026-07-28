@@ -1,5 +1,7 @@
 # Civic Boost Gauge 1.0 Firmware
 
+[Home](../../README.md) | [Español](README.es.md) | **English**
+
 These images were built from the hardware-verified renderer on 2026-07-15.
 
 The pressure-sensor input is WIP until the replacement sensor arrives. The

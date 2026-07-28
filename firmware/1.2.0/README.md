@@ -1,5 +1,7 @@
 # Civic Boost Gauge 1.2 Firmware
 
+[Home](../../README.md) | [Español](README.es.md) | **English**
+
 This release completes the bench-tested XGZP6847D digital pressure-sensor
 integration while preserving the verified prebaked 60 Hz rendering path.
 
