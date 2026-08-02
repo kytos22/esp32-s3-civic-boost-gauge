@@ -5,8 +5,9 @@
 Turbo boost gauge for the Waveshare ESP32-S3-Touch-AMOLED-1.43. The interface
 is designed for the 466x466 AMOLED with the USB connector facing down.
 
-The current production release is **v1.3.0**, using the hardware-tested
-XGZP6847D digital pressure sensor and the stable FT3168 shared-I2C touch path.
+The current production release is **v1.4.0**, adding the categorized settings
+menu and new project defaults while preserving the hardware-tested XGZP6847D
+digital pressure sensor and stable FT3168 shared-I2C touch path.
 
 The renderer uses pre-generated static visuals and a build-time gauge cache for
 smooth 60 Hz updates. The 4.90 MB cache is stored in the firmware as a 465 KB
@@ -15,15 +16,15 @@ screen. An initial sweep runs before live sensor readings begin.
 
 ## PSI gauge demo
 
-![Civic boost gauge PSI demo](firmware/1.3.0/civic-boost-gauge-psi-demo.gif)
+![Civic boost gauge PSI demo](firmware/1.4.0/civic-boost-gauge-psi-demo.gif)
 
 ## BAR gauge demo
 
-![Civic boost gauge BAR demo](firmware/1.3.0/civic-boost-gauge-bar-demo.gif)
+![Civic boost gauge BAR demo](firmware/1.4.0/civic-boost-gauge-bar-demo.gif)
 
 ## Boot screen
 
-![Honda Civic boot screen](firmware/1.3.0/civic-boost-gauge-boot.png)
+![Honda Civic boot screen](firmware/1.4.0/civic-boost-gauge-boot.png)
 
 ## Features
 
@@ -110,7 +111,10 @@ steps (default `0.35`). One Euro remains adjustable from `0.5` to `5.0 Hz` in
 `0.1 Hz` steps and from `0.00` to `3.00` beta per kPa in `0.05` steps. Its
 derivative cutoff remains fixed at `1 Hz`. The filter editor's `RESET` restores
 these parameter defaults without changing the selected mode. Mode and values
-are retained across restarts.
+are retained across restarts and firmware updates. On a device carrying older
+saved filter values, press the filter editor's `RESET` to adopt the v1.4.0
+tuning without changing any other setting, or use `RESET ALL` to restore every
+project default.
 
 See [Pressure setup, offset and smoothing](docs/pressure-settings.md) for a
 detailed explanation, recommended tuning procedure and practical examples.
@@ -175,8 +179,8 @@ or SCL lines.
 
 ## Firmware download
 
-Download the complete v1.3.0 package from the
-[GitHub release page](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.3.0).
+Download the complete v1.4.0 package from the
+[GitHub release page](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.4.0).
 Use the full image at flash address `0x0` for a complete installation. Use the
 application-only image at `0x10000` only when the board already has the matching
 bootloader and partition table. Verify downloaded files against
@@ -205,7 +209,7 @@ sensor path. It documents the verified architecture, invariants and validation
 workflows used by this project.
 
 The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
-1.3.0 firmware images and both gauge GIFs are in `firmware/1.3.0/`.
+1.4.0 firmware images and both gauge GIFs are in `firmware/1.4.0/`.
 
 ## Prebaked cache
 

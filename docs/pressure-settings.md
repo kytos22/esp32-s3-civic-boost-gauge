@@ -123,6 +123,8 @@ Open the settings menu with a long press on the Civic logo. Select `EN` or
 `SMOOTH`/`SUAV.` button and select `OFF`/`SIN`, `EMA` or `1 EURO`. One Euro is
 the factory-default mode. Existing persisted selections remain unchanged by a
 firmware update; the active language, mode and all parameters survive restarts.
+To adopt the v1.4.0 filter defaults on an upgraded device without changing its
+other settings, open the smoothing editor and press `RESET`.
 
 ## OFF: maximum immediacy
 
@@ -253,8 +255,10 @@ hose volume, installation, engine behavior and personal preference.
 
 ## Persistence and reset behavior
 
-The selected mode and its values are stored persistently:
+The interface language, selected mode and filter values are stored
+persistently:
 
+- interface language: EN or ES;
 - smoothing mode: OFF, EMA or One Euro;
 - EMA alpha;
 - One Euro minimum cutoff;

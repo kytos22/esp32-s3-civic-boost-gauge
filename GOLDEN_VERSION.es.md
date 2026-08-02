@@ -1,9 +1,9 @@
-# Versión de referencia: firmware final con sensor digital
+# Versión de referencia: firmware con ajustes por categorías
 
 [Inicio](README.es.md) | **Español** | [English](GOLDEN_VERSION.md)
 
-Fecha: 2026-07-28
-Estado: verificado en hardware y publicado como v1.3.0
+Fecha: 2026-08-02
+Estado: arranque verificado en hardware y publicado como v1.4.0
 
 - Animación SHOW fluida tanto al avanzar como al retroceder.
 - Sin artefactos visibles en el cursor ni en el arco.
@@ -26,12 +26,22 @@ Estado: verificado en hardware y publicado como v1.3.0
   tras reiniciar.
 - Traducción persistente `EN`/`ES`, offset y controles de smoothing
   SIN/EMA/One Euro verificados en hardware.
+- La navegación por INICIO, Medidor y Presión, todas las rutas de los editores
+  y la confirmación protegida del reset general superaron la validación
+  estructural. Todos los controles táctiles miden al menos 44 píxeles y las
+  áreas ampliadas que aparecen simultáneamente no se solapan.
+- La duración del logotipo se guarda entre 1 y 10 segundos y parte de un
+  segundo. One Euro es el modo inicial para instalaciones nuevas y reset
+  general, con `MIN 1,0` y `BETA 0,25`.
+- La imagen de aplicación exacta de v1.4.0 se flasheó en la placa. El arranque
+  serie confirmó la inicialización correcta del FT3168, XGZP6847D, PSRAM y
+  renderizador pregenerado, conservando los ajustes NVS existentes.
 - Documentación completa en inglés y español conectada mediante navegación en
   el mismo idioma desde cada sección traducida.
 - Diagnósticos de producción desactivados; se conservan por USB serie los
   mensajes de arranque, error y recuperación.
 - Imágenes finales de aplicación y flash completo almacenadas en
-  `firmware/1.3.0/`.
+  `firmware/1.4.0/`.
 
 El resultado digital calibrado de fábrica se utiliza directamente, sin
 calibración de cero por software.

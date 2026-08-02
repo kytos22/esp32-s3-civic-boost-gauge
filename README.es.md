@@ -6,9 +6,10 @@ Reloj de presión de turbo para la Waveshare
 ESP32-S3-Touch-AMOLED-1.43. La interfaz está diseñada para la pantalla AMOLED
 de 466x466 con el conector USB orientado hacia abajo.
 
-La versión de producción actual es la **v1.3.0**, con el sensor digital de
-presión XGZP6847D probado en hardware y la ruta táctil FT3168 estable sobre el
-bus I2C compartido.
+La versión de producción actual es la **v1.4.0**. Incorpora el menú de ajustes
+por categorías y los nuevos valores iniciales del proyecto, conservando el
+sensor digital de presión XGZP6847D probado en hardware y la ruta táctil FT3168
+estable sobre el bus I2C compartido.
 
 El renderizador utiliza elementos visuales pregenerados y una caché del reloj
 creada durante la compilación para mantener actualizaciones fluidas a 60 Hz.
@@ -18,15 +19,15 @@ arranque. Antes de mostrar las lecturas reales se ejecuta un barrido inicial.
 
 ## Demostración del reloj en PSI
 
-![Demostración del reloj Civic en PSI](firmware/1.3.0/civic-boost-gauge-psi-demo.gif)
+![Demostración del reloj Civic en PSI](firmware/1.4.0/civic-boost-gauge-psi-demo.gif)
 
 ## Demostración del reloj en BAR
 
-![Demostración del reloj Civic en BAR](firmware/1.3.0/civic-boost-gauge-bar-demo.gif)
+![Demostración del reloj Civic en BAR](firmware/1.4.0/civic-boost-gauge-bar-demo.gif)
 
 ## Pantalla de arranque
 
-![Pantalla de arranque Honda Civic](firmware/1.3.0/civic-boost-gauge-boot.png)
+![Pantalla de arranque Honda Civic](firmware/1.4.0/civic-boost-gauge-boot.png)
 
 ## Características
 
@@ -118,7 +119,10 @@ en pasos de `0,05` (valor inicial `0,35`). One Euro sigue siendo ajustable entre
 `0,5` y `5,0 Hz` en pasos de `0,1 Hz`, y entre `0,00` y `3,00` beta por kPa en
 pasos de `0,05`. El corte de la derivada permanece fijo en `1 Hz`. El botón
 `RESTAURAR` del filtro recupera estos parámetros sin cambiar el modo. El modo y
-sus valores se conservan tras reiniciar.
+sus valores se conservan tras reiniciar y actualizar el firmware. En un
+dispositivo que conserve valores anteriores, pulsa `RESTAURAR` en el editor del
+filtro para aplicar el ajuste de v1.4.0 sin cambiar ningún otro valor, o utiliza
+`RESET GENERAL` para recuperar todos los valores iniciales del proyecto.
 
 Consulta [Configuración de presión, offset y smoothing](docs/pressure-settings.es.md)
 para ver la explicación detallada, el procedimiento recomendado de ajuste y
@@ -187,8 +191,8 @@ apliques 5 V a las líneas SDA o SCL.
 
 ## Descarga del firmware
 
-Descarga el paquete completo v1.3.0 desde la
-[página de la versión en GitHub](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.3.0).
+Descarga el paquete completo v1.4.0 desde la
+[página de la versión en GitHub](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.4.0).
 Utiliza la imagen completa en la dirección `0x0` para una instalación completa.
 Usa la imagen de sólo aplicación en `0x10000` únicamente si la placa ya tiene
 el bootloader y la tabla de particiones correspondientes. Verifica los archivos
@@ -219,7 +223,7 @@ los procesos de validación empleados en el proyecto.
 
 La instantánea validada del renderizador se documenta en
 [`GOLDEN_VERSION.es.md`](GOLDEN_VERSION.es.md). Las imágenes del firmware
-v1.3.0 y las dos demostraciones del reloj se encuentran en `firmware/1.3.0/`.
+v1.4.0 y las dos demostraciones del reloj se encuentran en `firmware/1.4.0/`.
 
 ## Caché pregenerada
 

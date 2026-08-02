@@ -128,7 +128,9 @@ Abre el menú mediante una pulsación larga sobre el logotipo Civic. Selecciona
 `PRESSURE`/`PRESION`, pulsa `SMOOTH`/`SUAV.` y elige `OFF`/`SIN`, `EMA` o
 `1 EURO`. One Euro es el modo inicial de fábrica. Una actualización no cambia
 la selección ya guardada; el idioma, el modo y los parámetros sobreviven a los
-reinicios.
+reinicios. Para aplicar los valores iniciales del filtro de v1.4.0 en un
+dispositivo actualizado sin modificar sus demás ajustes, abre el editor de
+smoothing y pulsa `RESTAURAR`.
 
 ## SIN: respuesta inmediata
 
@@ -261,7 +263,8 @@ preferencias personales.
 
 ## Persistencia y comportamiento de RESTAURAR
 
-El modo seleccionado y sus valores se guardan de forma persistente:
+El idioma de la interfaz, el modo seleccionado y los valores del filtro se
+guardan de forma persistente:
 
 - idioma de la interfaz: EN o ES;
 - modo de smoothing: SIN, EMA o One Euro;

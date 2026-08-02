@@ -12,7 +12,7 @@ en inglés salvo que el usuario solicite otra cosa.
 Este es un reloj de presión de turbo probado en hardware para la Waveshare
 ESP32-S3-Touch-AMOLED-1.43, con AMOLED SH8601 de 466x466 y control táctil
 FT3168. La placa se monta con el conector USB orientado hacia abajo. La versión
-`v1.3.0` es la referencia de producción actual.
+`v1.4.0` es la referencia de producción actual.
 
 El renderizador visual se considera estable y sin artefactos. Lee estos
 archivos antes de modificar el renderizado, la transferencia de pantalla, las
@@ -209,10 +209,10 @@ Si `pio` no está en PATH en Windows:
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run --target upload --upload-port COM6
 ```
 
-Referencia esperada para la compilación de publicación `v1.3.0`:
+Referencia esperada para la compilación de publicación `v1.4.0`:
 
-- RAM interna: aproximadamente 65,4 KB.
-- Flash: aproximadamente 1,201 MB de la partición de aplicación de 6,55 MB.
+- RAM interna: aproximadamente 65,5 KB.
+- Flash: aproximadamente 1,206 MB de la partición de aplicación de 6,55 MB.
 - Los avisos de Arduino_GFX sobre `SPI_MAX_PIXELS_AT_ONCE` son anteriores;
   investiga cualquier aviso nuevo.
 
@@ -261,7 +261,7 @@ No edites manualmente los arrays generados en
 ImageMagick es necesario para generar GIF. Genera ambas unidades con:
 
 ```powershell
-node tools/create_demo_gif.js 1.3.0
+node tools/create_demo_gif.js 1.4.0
 ```
 
 Cambia el argumento para una versión nueva. El generador debe utilizar captura,
