@@ -126,6 +126,19 @@ lv_obj_t *label_value;
 lv_obj_t *label_unit;
 lv_obj_t *civic_logo_image;
 lv_obj_t *brightness_panel;
+lv_obj_t *settings_close_button;
+lv_obj_t *settings_home_page;
+lv_obj_t *settings_gauge_page;
+lv_obj_t *settings_pressure_page;
+lv_obj_t *settings_title_label;
+lv_obj_t *settings_gauge_category_label;
+lv_obj_t *settings_pressure_category_label;
+lv_obj_t *settings_reset_all_label;
+lv_obj_t *settings_gauge_title_label;
+lv_obj_t *settings_pressure_title_label;
+lv_obj_t *settings_unit_title_label;
+lv_obj_t *settings_gauge_back_label;
+lv_obj_t *settings_pressure_back_label;
 lv_obj_t *brightness_label;
 lv_obj_t *brightness_slider;
 lv_obj_t *language_en_button;
@@ -159,6 +172,12 @@ lv_obj_t *pressure_offset_range_label;
 lv_obj_t *pressure_offset_slider;
 lv_obj_t *pressure_offset_reset_label;
 lv_obj_t *pressure_offset_done_label;
+lv_obj_t *startup_duration_label;
+lv_obj_t *reset_confirmation_panel;
+lv_obj_t *reset_confirmation_title_label;
+lv_obj_t *reset_confirmation_message_label;
+lv_obj_t *reset_confirmation_cancel_label;
+lv_obj_t *reset_confirmation_confirm_label;
 lv_obj_t *indicator_outline;
 lv_obj_t *indicator_cursor;
 lv_obj_t *arc_fill;
@@ -193,6 +212,15 @@ enum UiLanguage : uint8_t {
     UI_LANGUAGE_SPANISH = 1
 };
 
+enum SettingsPage : uint8_t {
+    SETTINGS_PAGE_HOME = 0,
+    SETTINGS_PAGE_GAUGE = 1,
+    SETTINGS_PAGE_PRESSURE = 2
+};
+
+static const PressureSmoothingMode PRESSURE_SMOOTHING_DEFAULT =
+    PRESSURE_SMOOTHING_ONE_EURO;
+
 // Rangos visuales del gauge
 static const float BOOST_MIN_PSI = -15.0f;
 static const float BOOST_MAX_PSI =  30.0f;
@@ -221,11 +249,11 @@ static const uint8_t SENSOR_EMA_ALPHA_DEFAULT_PERCENT = 35;
 static const uint16_t SENSOR_ONE_EURO_MIN_CUTOFF_MIN_TENTHS_HZ = 5;
 static const uint16_t SENSOR_ONE_EURO_MIN_CUTOFF_MAX_TENTHS_HZ = 50;
 static const uint16_t SENSOR_ONE_EURO_MIN_CUTOFF_STEP_TENTHS_HZ = 1;
-static const uint16_t SENSOR_ONE_EURO_MIN_CUTOFF_DEFAULT_TENTHS_HZ = 20;
+static const uint16_t SENSOR_ONE_EURO_MIN_CUTOFF_DEFAULT_TENTHS_HZ = 10;
 static const uint16_t SENSOR_ONE_EURO_BETA_MIN_HUNDREDTHS_PER_KPA = 0;
 static const uint16_t SENSOR_ONE_EURO_BETA_MAX_HUNDREDTHS_PER_KPA = 300;
 static const uint16_t SENSOR_ONE_EURO_BETA_STEP_HUNDREDTHS_PER_KPA = 5;
-static const uint16_t SENSOR_ONE_EURO_BETA_DEFAULT_HUNDREDTHS_PER_KPA = 100;
+static const uint16_t SENSOR_ONE_EURO_BETA_DEFAULT_HUNDREDTHS_PER_KPA = 25;
 static const uint32_t SENSOR_SAMPLE_INTERVAL_MS = 10;
 static const uint32_t SENSOR_STATUS_POLL_INTERVAL_MS = 2;
 static const uint32_t SENSOR_CONVERSION_TIMEOUT_MS = 35;
@@ -271,7 +299,9 @@ static const int BAKED_TILE_ROWS =
 static const int BAKED_TILE_COUNT = BAKED_TILE_COLUMNS * BAKED_TILE_ROWS;
 static const int BAKED_TILE_MASK_BYTES = (BAKED_TILE_COUNT + 7) / 8;
 static const uint32_t SHOW_CYCLE_MS = 12000;
-static const uint32_t STARTUP_SPLASH_MS = 5000;
+static const uint8_t STARTUP_LOGO_MIN_SECONDS = 1;
+static const uint8_t STARTUP_LOGO_MAX_SECONDS = 10;
+static const uint8_t STARTUP_LOGO_DEFAULT_SECONDS = 1;
 static const uint32_t STARTUP_SWEEP_UP_MS = 1300;
 static const uint32_t STARTUP_SWEEP_DOWN_MS = 1400;
 static const uint32_t GAUGE_FRAME_PERIOD_US = 16667;
@@ -308,7 +338,8 @@ static float pressure_filter_previous_sample_kpa = 0.0f;
 static float pressure_filter_derivative_kpa_per_s = 0.0f;
 static uint32_t pressure_filter_last_sample_us = 0;
 static bool sensor_temperature_enabled = false;
-static PressureSmoothingMode pressure_smoothing_mode = PRESSURE_SMOOTHING_OFF;
+static PressureSmoothingMode pressure_smoothing_mode =
+    PRESSURE_SMOOTHING_DEFAULT;
 static uint8_t pressure_ema_alpha_percent =
     SENSOR_EMA_ALPHA_DEFAULT_PERCENT;
 static uint16_t pressure_one_euro_min_cutoff_tenths_hz =
@@ -341,12 +372,15 @@ StartupPhase startup_phase = STARTUP_SPLASH;
 uint32_t show_started_ms = 0;
 uint32_t startup_phase_started_ms = 0;
 float startup_sweep_target_pressure = 0.0f;
+static uint8_t startup_logo_seconds = STARTUP_LOGO_DEFAULT_SECONDS;
+static uint8_t saved_startup_logo_seconds = STARTUP_LOGO_DEFAULT_SECONDS;
 static const uint8_t SCREEN_BRIGHTNESS_MIN = 10;
 static const uint8_t SCREEN_BRIGHTNESS_DEFAULT = 191; // 75%
 uint8_t screen_brightness = SCREEN_BRIGHTNESS_DEFAULT;
 static uint8_t saved_screen_brightness = SCREEN_BRIGHTNESS_DEFAULT;
 bool brightness_menu_open = false;
 bool suppress_show_click = false;
+static SettingsPage active_settings_page = SETTINGS_PAGE_HOME;
 lv_area_t arc_color_areas[ARC_COLOR_SEGMENT_COUNT];
 lv_area_t prebaked_arc_areas[PREBAKED_SEGMENT_COUNT];
 lv_area_t prebaked_cursor_areas[PREBAKED_SEGMENT_COUNT];
@@ -627,7 +661,7 @@ void save_sensor_temperature_setting()
 
 void load_pressure_smoothing_setting()
 {
-    pressure_smoothing_mode = PRESSURE_SMOOTHING_OFF;
+    pressure_smoothing_mode = PRESSURE_SMOOTHING_DEFAULT;
     pressure_ema_alpha_percent = SENSOR_EMA_ALPHA_DEFAULT_PERCENT;
     pressure_one_euro_min_cutoff_tenths_hz =
         SENSOR_ONE_EURO_MIN_CUTOFF_DEFAULT_TENTHS_HZ;
@@ -640,7 +674,7 @@ void load_pressure_smoothing_setting()
     const uint8_t saved_mode = preferences.getUChar("smooth-mode", UINT8_MAX);
     if (saved_mode <= PRESSURE_SMOOTHING_ONE_EURO) {
         pressure_smoothing_mode = (PressureSmoothingMode)saved_mode;
-    } else {
+    } else if (preferences.isKey("smoothing")) {
         // Firmware versions up to v1.1.x stored only an OFF/ON boolean.
         pressure_smoothing_mode = preferences.getBool("smoothing", false)
             ? PRESSURE_SMOOTHING_ONE_EURO
@@ -758,6 +792,45 @@ void save_screen_brightness()
         saved_screen_brightness = screen_brightness;
         Serial.printf("Brightness saved: %u\n", screen_brightness);
     }
+}
+
+void load_startup_logo_setting()
+{
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", true)) {
+        startup_logo_seconds = STARTUP_LOGO_DEFAULT_SECONDS;
+        saved_startup_logo_seconds = startup_logo_seconds;
+        return;
+    }
+    uint8_t stored_seconds = preferences.getUChar(
+        "boot-seconds", STARTUP_LOGO_DEFAULT_SECONDS);
+    preferences.end();
+    if (stored_seconds < STARTUP_LOGO_MIN_SECONDS ||
+        stored_seconds > STARTUP_LOGO_MAX_SECONDS) {
+        stored_seconds = STARTUP_LOGO_DEFAULT_SECONDS;
+    }
+    startup_logo_seconds = stored_seconds;
+    saved_startup_logo_seconds = stored_seconds;
+}
+
+void save_startup_logo_setting()
+{
+    if (startup_logo_seconds == saved_startup_logo_seconds) return;
+
+    Preferences preferences;
+    if (!preferences.begin("boost-gauge", false)) return;
+    const size_t bytes_written =
+        preferences.putUChar("boot-seconds", startup_logo_seconds);
+    preferences.end();
+    if (bytes_written > 0) {
+        saved_startup_logo_seconds = startup_logo_seconds;
+        Serial.printf("Startup logo: %u s\n", startup_logo_seconds);
+    }
+}
+
+uint32_t startup_logo_duration_ms()
+{
+    return (uint32_t)startup_logo_seconds * 1000U;
 }
 
 lv_color_t boost_color(float psi_value);
@@ -2890,6 +2963,67 @@ void brightness_slider_release_event(lv_event_t *event)
     save_screen_brightness();
 }
 
+void update_startup_duration_label()
+{
+    if (startup_duration_label == nullptr) return;
+    lv_label_set_text_fmt(
+        startup_duration_label,
+        ui_is_spanish() ? "ARRANQUE: %u S" : "STARTUP: %u S",
+        startup_logo_seconds);
+}
+
+void startup_duration_step_event(lv_event_t *event)
+{
+    const int delta = (int)(intptr_t)lv_event_get_user_data(event);
+    startup_logo_seconds = (uint8_t)LV_CLAMP(
+        STARTUP_LOGO_MIN_SECONDS,
+        (int)startup_logo_seconds + delta,
+        STARTUP_LOGO_MAX_SECONDS);
+    update_startup_duration_label();
+    save_startup_logo_setting();
+}
+
+void show_settings_page(SettingsPage page)
+{
+    if (page > SETTINGS_PAGE_PRESSURE) page = SETTINGS_PAGE_HOME;
+    active_settings_page = page;
+
+    lv_obj_t *pages[] = {
+        settings_home_page,
+        settings_gauge_page,
+        settings_pressure_page
+    };
+    for (uint8_t index = 0; index < 3; ++index) {
+        if (pages[index] == nullptr) continue;
+        if (index == (uint8_t)active_settings_page) {
+            lv_obj_clear_flag(pages[index], LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(pages[index]);
+        } else {
+            lv_obj_add_flag(pages[index], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (pressure_offset_panel != nullptr) {
+        save_pressure_offset();
+        lv_obj_add_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (pressure_smoothing_panel != nullptr) {
+        lv_obj_add_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (reset_confirmation_panel != nullptr) {
+        lv_obj_add_flag(reset_confirmation_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (settings_close_button != nullptr) {
+        lv_obj_move_foreground(settings_close_button);
+    }
+}
+
+void settings_page_event(lv_event_t *event)
+{
+    show_settings_page(
+        (SettingsPage)(intptr_t)lv_event_get_user_data(event));
+}
+
 void update_pressure_offset_controls()
 {
     char button_text[24];
@@ -2984,6 +3118,9 @@ void pressure_offset_close_event(lv_event_t *event)
     (void)event;
     save_pressure_offset();
     lv_obj_add_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
+    if (settings_close_button != nullptr) {
+        lv_obj_move_foreground(settings_close_button);
+    }
 }
 
 void pressure_offset_open_event(lv_event_t *event)
@@ -2991,6 +3128,9 @@ void pressure_offset_open_event(lv_event_t *event)
     (void)event;
     if (pressure_smoothing_panel != nullptr) {
         lv_obj_add_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (reset_confirmation_panel != nullptr) {
+        lv_obj_add_flag(reset_confirmation_panel, LV_OBJ_FLAG_HIDDEN);
     }
     update_pressure_offset_controls();
     lv_obj_clear_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
@@ -3181,12 +3321,85 @@ void update_language_buttons()
         LV_STATE_DEFAULT);
 }
 
+void update_settings_navigation_text()
+{
+    if (settings_title_label != nullptr) {
+        lv_label_set_text(
+            settings_title_label,
+            ui_is_spanish() ? "AJUSTES" : "SETTINGS");
+    }
+    if (settings_gauge_category_label != nullptr) {
+        lv_label_set_text(
+            settings_gauge_category_label,
+            ui_is_spanish() ? "MEDIDOR" : "GAUGE");
+    }
+    if (settings_pressure_category_label != nullptr) {
+        lv_label_set_text(
+            settings_pressure_category_label,
+            ui_is_spanish() ? "PRESION" : "PRESSURE");
+    }
+    if (settings_reset_all_label != nullptr) {
+        lv_label_set_text(
+            settings_reset_all_label,
+            ui_is_spanish() ? "RESET GENERAL" : "RESET ALL");
+    }
+    if (settings_gauge_title_label != nullptr) {
+        lv_label_set_text(
+            settings_gauge_title_label,
+            ui_is_spanish() ? "MEDIDOR" : "GAUGE");
+    }
+    if (settings_pressure_title_label != nullptr) {
+        lv_label_set_text(
+            settings_pressure_title_label,
+            ui_is_spanish() ? "PRESION" : "PRESSURE");
+    }
+    if (settings_unit_title_label != nullptr) {
+        lv_label_set_text(
+            settings_unit_title_label,
+            ui_is_spanish() ? "UNIDAD" : "UNIT");
+    }
+    if (settings_gauge_back_label != nullptr) {
+        lv_label_set_text(
+            settings_gauge_back_label,
+            ui_is_spanish() ? "ATRAS" : "BACK");
+    }
+    if (settings_pressure_back_label != nullptr) {
+        lv_label_set_text(
+            settings_pressure_back_label,
+            ui_is_spanish() ? "ATRAS" : "BACK");
+    }
+    if (reset_confirmation_title_label != nullptr) {
+        lv_label_set_text(
+            reset_confirmation_title_label,
+            ui_is_spanish() ? "RESET GENERAL?" : "RESET ALL?");
+    }
+    if (reset_confirmation_message_label != nullptr) {
+        lv_label_set_text(
+            reset_confirmation_message_label,
+            ui_is_spanish()
+                ? "VOLVER A LOS VALORES\nPREDETERMINADOS?"
+                : "RESTORE EVERY SETTING\nTO ITS DEFAULT?");
+    }
+    if (reset_confirmation_cancel_label != nullptr) {
+        lv_label_set_text(
+            reset_confirmation_cancel_label,
+            ui_is_spanish() ? "CANCELAR" : "CANCEL");
+    }
+    if (reset_confirmation_confirm_label != nullptr) {
+        lv_label_set_text(
+            reset_confirmation_confirm_label,
+            ui_is_spanish() ? "RESTAURAR" : "RESET");
+    }
+}
+
 void update_translated_ui_text()
 {
     update_brightness_label();
     update_sensor_temperature_button();
     update_pressure_offset_controls();
     update_pressure_smoothing_controls();
+    update_startup_duration_label();
+    update_settings_navigation_text();
     update_language_buttons();
 }
 
@@ -3202,6 +3415,77 @@ void ui_language_event(lv_event_t *event)
     Serial.printf(
         "UI language: %s\n",
         ui_language == UI_LANGUAGE_SPANISH ? "ES" : "EN");
+}
+
+void reset_confirmation_open_event(lv_event_t *event)
+{
+    (void)event;
+    update_settings_navigation_text();
+    lv_obj_clear_flag(reset_confirmation_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(reset_confirmation_panel);
+}
+
+void reset_confirmation_cancel_event(lv_event_t *event)
+{
+    (void)event;
+    lv_obj_add_flag(reset_confirmation_panel, LV_OBJ_FLAG_HIDDEN);
+    if (settings_close_button != nullptr) {
+        lv_obj_move_foreground(settings_close_button);
+    }
+}
+
+void reset_all_settings_event(lv_event_t *event)
+{
+    (void)event;
+
+    bool namespace_cleared = false;
+    Preferences preferences;
+    if (preferences.begin("boost-gauge", false)) {
+        namespace_cleared = preferences.clear();
+        preferences.end();
+    }
+
+    configure_pressure_unit(PRESSURE_UNIT_PSI);
+    ui_language = UI_LANGUAGE_ENGLISH;
+    sensor_temperature_enabled = false;
+    pressure_smoothing_mode = PRESSURE_SMOOTHING_DEFAULT;
+    pressure_ema_alpha_percent = SENSOR_EMA_ALPHA_DEFAULT_PERCENT;
+    pressure_one_euro_min_cutoff_tenths_hz =
+        SENSOR_ONE_EURO_MIN_CUTOFF_DEFAULT_TENTHS_HZ;
+    pressure_one_euro_beta_hundredths_per_kpa =
+        SENSOR_ONE_EURO_BETA_DEFAULT_HUNDREDTHS_PER_KPA;
+    pressure_offset_tenths_psi = 0;
+    screen_brightness = SCREEN_BRIGHTNESS_DEFAULT;
+    startup_logo_seconds = STARTUP_LOGO_DEFAULT_SECONDS;
+    gauge_mode = GAUGE_MODE_LIVE;
+
+    save_pressure_unit();
+    save_ui_language_setting();
+    save_sensor_temperature_setting();
+    save_pressure_smoothing_setting();
+    save_pressure_offset();
+    save_screen_brightness();
+    save_startup_logo_setting();
+
+    reset_pressure_smoothing_dynamics();
+    gfx->Display_Brightness(screen_brightness);
+    if (brightness_slider != nullptr) {
+        lv_slider_set_value(
+            brightness_slider, screen_brightness, LV_ANIM_OFF);
+    }
+    filtered_pressure = 0.0f;
+    rendered_value_text[0] = '\0';
+    prebaked_force_full = true;
+    prepare_static_gauge_frame();
+    update_pressure_unit_buttons();
+    update_translated_ui_text();
+    show_settings_page(SETTINGS_PAGE_HOME);
+    lv_obj_invalidate(brightness_panel);
+
+    Serial.printf(
+        "All settings reset to defaults (%s)\n",
+        namespace_cleared ? "namespace cleared" : "defaults overwritten");
+    print_pressure_smoothing_settings();
 }
 
 void pressure_smoothing_mode_event(lv_event_t *event)
@@ -3306,6 +3590,9 @@ void pressure_smoothing_close_event(lv_event_t *event)
 {
     (void)event;
     lv_obj_add_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
+    if (settings_close_button != nullptr) {
+        lv_obj_move_foreground(settings_close_button);
+    }
 }
 
 void pressure_smoothing_open_event(lv_event_t *event)
@@ -3314,6 +3601,9 @@ void pressure_smoothing_open_event(lv_event_t *event)
     if (pressure_offset_panel != nullptr) {
         save_pressure_offset();
         lv_obj_add_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (reset_confirmation_panel != nullptr) {
+        lv_obj_add_flag(reset_confirmation_panel, LV_OBJ_FLAG_HIDDEN);
     }
     update_pressure_smoothing_controls();
     lv_obj_clear_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
@@ -3341,8 +3631,7 @@ void brightness_close_event(lv_event_t *event)
     (void)event;
     save_screen_brightness();
     save_pressure_offset();
-    lv_obj_add_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
+    show_settings_page(SETTINGS_PAGE_HOME);
     brightness_menu_open = false;
     lv_obj_add_flag(brightness_panel, LV_OBJ_FLAG_HIDDEN);
     prebaked_force_full = true;
@@ -3357,16 +3646,15 @@ void brightness_menu_event(lv_event_t *event)
     brightness_menu_open = !brightness_menu_open;
 
     if (brightness_menu_open) {
-        lv_obj_add_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
         update_pressure_offset_controls();
         update_pressure_smoothing_controls();
+        update_startup_duration_label();
         lv_obj_clear_flag(brightness_panel, LV_OBJ_FLAG_HIDDEN);
+        show_settings_page(SETTINGS_PAGE_HOME);
         lv_obj_move_foreground(brightness_panel);
     } else {
         save_pressure_offset();
-        lv_obj_add_flag(pressure_offset_panel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(pressure_smoothing_panel, LV_OBJ_FLAG_HIDDEN);
+        show_settings_page(SETTINGS_PAGE_HOME);
         lv_obj_add_flag(brightness_panel, LV_OBJ_FLAG_HIDDEN);
         prebaked_force_full = true;
         gauge_restore_pending = true;
@@ -3411,8 +3699,9 @@ lv_obj_t *create_smoothing_mode_button(
     lv_obj_t **label_out)
 {
     lv_obj_t *button = lv_btn_create(parent);
-    lv_obj_set_size(button, 100, 42);
+    lv_obj_set_size(button, 100, 46);
     lv_obj_align(button, LV_ALIGN_TOP_MID, x_offset, 38);
+    lv_obj_set_ext_click_area(button, 3);
     lv_obj_set_style_radius(button, 8, 0);
     lv_obj_set_style_bg_color(
         button, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
@@ -3440,6 +3729,7 @@ lv_obj_t *create_smoothing_adjust_button(
     lv_obj_t *button = lv_btn_create(parent);
     lv_obj_set_size(button, 50, 44);
     lv_obj_align(button, LV_ALIGN_CENTER, x_offset, y_offset);
+    lv_obj_set_ext_click_area(button, 4);
     lv_obj_set_style_radius(button, 8, 0);
     lv_obj_set_style_bg_color(
         button,
@@ -3457,6 +3747,48 @@ lv_obj_t *create_smoothing_adjust_button(
     lv_label_set_text(label, text);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
     lv_obj_center(label);
+    return button;
+}
+
+lv_obj_t *create_settings_page(lv_obj_t *parent)
+{
+    lv_obj_t *page = lv_obj_create(parent);
+    lv_obj_set_size(page, 390, 300);
+    lv_obj_center(page);
+    lv_obj_set_style_bg_opa(page, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(page, 0, 0);
+    lv_obj_set_style_pad_all(page, 0, 0);
+    lv_obj_clear_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+    return page;
+}
+
+lv_obj_t *create_settings_button(
+    lv_obj_t *parent,
+    lv_coord_t width,
+    lv_coord_t height,
+    lv_align_t alignment,
+    lv_coord_t x_offset,
+    lv_coord_t y_offset,
+    lv_event_cb_t event_callback,
+    void *event_data)
+{
+    lv_obj_t *button = lv_btn_create(parent);
+    lv_obj_set_size(button, width, height);
+    lv_obj_align(button, alignment, x_offset, y_offset);
+    lv_obj_set_ext_click_area(button, 4);
+    lv_obj_set_style_radius(button, 8, 0);
+    lv_obj_set_style_bg_color(
+        button,
+        lv_palette_darken(LV_PALETTE_GREY, 3),
+        LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(
+        button,
+        lv_palette_main(LV_PALETTE_RED),
+        LV_STATE_PRESSED);
+    if (event_callback != nullptr) {
+        lv_obj_add_event_cb(
+            button, event_callback, LV_EVENT_CLICKED, event_data);
+    }
     return button;
 }
 
@@ -3494,205 +3826,249 @@ void create_ui()
     lv_obj_set_style_pad_all(brightness_panel, 0, 0);
     lv_obj_add_flag(brightness_panel, LV_OBJ_FLAG_HIDDEN);
 
-    brightness_label = lv_label_create(brightness_panel);
-    lv_obj_set_style_text_color(brightness_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(brightness_label, &lv_font_montserrat_16, 0);
-    lv_obj_align(brightness_label, LV_ALIGN_TOP_LEFT, 18, 18);
+    settings_home_page = create_settings_page(brightness_panel);
+    settings_gauge_page = create_settings_page(brightness_panel);
+    settings_pressure_page = create_settings_page(brightness_panel);
+    lv_obj_add_flag(settings_gauge_page, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(settings_pressure_page, LV_OBJ_FLAG_HIDDEN);
 
-    unit_psi_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(unit_psi_button, 105, 44);
-    lv_obj_align(unit_psi_button, LV_ALIGN_TOP_MID, -57, 58);
-    lv_obj_set_ext_click_area(unit_psi_button, 4);
-    lv_obj_set_style_radius(unit_psi_button, 8, 0);
-    lv_obj_set_style_bg_color(
-        unit_psi_button, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(
-        unit_psi_button, pressure_unit_event, LV_EVENT_CLICKED,
-        (void *)(intptr_t)PRESSURE_UNIT_PSI);
-    lv_obj_t *unit_psi_label = lv_label_create(unit_psi_button);
-    lv_label_set_text(unit_psi_label, "PSI");
-    lv_obj_set_style_text_font(unit_psi_label, &lv_font_montserrat_18, 0);
-    lv_obj_center(unit_psi_label);
+    settings_title_label = lv_label_create(settings_home_page);
+    lv_obj_set_style_text_color(settings_title_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        settings_title_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(settings_title_label, LV_ALIGN_TOP_LEFT, 16, 20);
 
-    unit_bar_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(unit_bar_button, 105, 44);
-    lv_obj_align(unit_bar_button, LV_ALIGN_TOP_MID, 57, 58);
-    lv_obj_set_ext_click_area(unit_bar_button, 4);
-    lv_obj_set_style_radius(unit_bar_button, 8, 0);
-    lv_obj_set_style_bg_color(
-        unit_bar_button, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(
-        unit_bar_button, pressure_unit_event, LV_EVENT_CLICKED,
-        (void *)(intptr_t)PRESSURE_UNIT_BAR);
-    lv_obj_t *unit_bar_label = lv_label_create(unit_bar_button);
-    lv_label_set_text(unit_bar_label, "BAR");
-    lv_obj_set_style_text_font(unit_bar_label, &lv_font_montserrat_18, 0);
-    lv_obj_center(unit_bar_label);
-    update_pressure_unit_buttons();
-
-    brightness_slider = lv_slider_create(brightness_panel);
-    lv_obj_set_size(brightness_slider, 190, 22);
-    lv_obj_align(brightness_slider, LV_ALIGN_CENTER, 0, 15);
-    lv_slider_set_range(brightness_slider, 10, 255);
-    lv_slider_set_value(brightness_slider, screen_brightness, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(brightness_slider, lv_palette_darken(LV_PALETTE_GREY, 3), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(brightness_slider, lv_palette_main(LV_PALETTE_RED), LV_PART_INDICATOR);
-    lv_obj_set_style_radius(brightness_slider, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_radius(brightness_slider, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(brightness_slider, lv_color_white(), LV_PART_KNOB);
-    lv_obj_set_style_radius(brightness_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_width(brightness_slider, 40, LV_PART_KNOB);
-    lv_obj_set_style_height(brightness_slider, 40, LV_PART_KNOB);
-    lv_obj_set_ext_click_area(brightness_slider, 16);
-    lv_obj_add_event_cb(brightness_slider, brightness_slider_event, LV_EVENT_PRESSING, NULL);
-    lv_obj_add_event_cb(
-        brightness_slider,
-        brightness_slider_release_event,
-        LV_EVENT_RELEASED,
-        NULL);
-
-    lv_obj_t *brightness_down = lv_btn_create(brightness_panel);
-    lv_obj_set_size(brightness_down, 58, 58);
-    lv_obj_align(brightness_down, LV_ALIGN_CENTER, -145, 15);
-    lv_obj_set_style_radius(brightness_down, 8, 0);
-    lv_obj_set_style_bg_color(brightness_down, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
-    lv_obj_set_style_bg_color(brightness_down, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(brightness_down, brightness_step_event, LV_EVENT_CLICKED, (void *)(intptr_t)-15);
-    lv_obj_t *brightness_down_label = lv_label_create(brightness_down);
-    lv_label_set_text(brightness_down_label, "-");
-    lv_obj_set_style_text_font(brightness_down_label, &lv_font_montserrat_32, 0);
-    lv_obj_center(brightness_down_label);
-
-    lv_obj_t *brightness_up = lv_btn_create(brightness_panel);
-    lv_obj_set_size(brightness_up, 58, 58);
-    lv_obj_align(brightness_up, LV_ALIGN_CENTER, 145, 15);
-    lv_obj_set_style_radius(brightness_up, 8, 0);
-    lv_obj_set_style_bg_color(brightness_up, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
-    lv_obj_set_style_bg_color(brightness_up, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(brightness_up, brightness_step_event, LV_EVENT_CLICKED, (void *)(intptr_t)15);
-    lv_obj_t *brightness_up_label = lv_label_create(brightness_up);
-    lv_label_set_text(brightness_up_label, "+");
-    lv_obj_set_style_text_font(brightness_up_label, &lv_font_montserrat_32, 0);
-    lv_obj_center(brightness_up_label);
-
-    lv_obj_t *brightness_close = lv_btn_create(brightness_panel);
-    lv_obj_set_size(brightness_close, 64, 48);
-    lv_obj_align(brightness_close, LV_ALIGN_TOP_RIGHT, -12, 10);
-    lv_obj_set_ext_click_area(brightness_close, 14);
-    lv_obj_set_style_radius(brightness_close, 8, 0);
-    lv_obj_set_style_bg_color(brightness_close, lv_palette_darken(LV_PALETTE_GREY, 3), 0);
-    lv_obj_set_style_bg_color(brightness_close, lv_palette_main(LV_PALETTE_RED), LV_STATE_PRESSED);
-    lv_obj_add_event_cb(brightness_close, brightness_close_event, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *brightness_close_label = lv_label_create(brightness_close);
-    lv_label_set_text(brightness_close_label, LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_font(brightness_close_label, &lv_font_montserrat_32, 0);
-    lv_obj_center(brightness_close_label);
-
-    language_en_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(language_en_button, 52, 44);
-    lv_obj_align(language_en_button, LV_ALIGN_TOP_RIGHT, -162, 6);
-    lv_obj_set_style_radius(language_en_button, 8, 0);
-    lv_obj_set_style_bg_color(
-        language_en_button,
-        lv_palette_main(LV_PALETTE_RED),
-        LV_STATE_PRESSED);
-    lv_obj_add_event_cb(
-        language_en_button,
-        ui_language_event,
-        LV_EVENT_CLICKED,
-        (void *)(intptr_t)UI_LANGUAGE_ENGLISH);
+    language_en_button = create_settings_button(
+        settings_home_page, 52, 44, LV_ALIGN_TOP_RIGHT, -162, 8,
+        ui_language_event, (void *)(intptr_t)UI_LANGUAGE_ENGLISH);
     lv_obj_t *language_en_label = lv_label_create(language_en_button);
     lv_label_set_text(language_en_label, "EN");
     lv_obj_set_style_text_font(
         language_en_label, &lv_font_montserrat_16, 0);
     lv_obj_center(language_en_label);
 
-    language_es_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(language_es_button, 52, 44);
-    lv_obj_align(language_es_button, LV_ALIGN_TOP_RIGHT, -100, 6);
-    lv_obj_set_style_radius(language_es_button, 8, 0);
-    lv_obj_set_style_bg_color(
-        language_es_button,
-        lv_palette_main(LV_PALETTE_RED),
-        LV_STATE_PRESSED);
-    lv_obj_add_event_cb(
-        language_es_button,
-        ui_language_event,
-        LV_EVENT_CLICKED,
-        (void *)(intptr_t)UI_LANGUAGE_SPANISH);
+    language_es_button = create_settings_button(
+        settings_home_page, 52, 44, LV_ALIGN_TOP_RIGHT, -100, 8,
+        ui_language_event, (void *)(intptr_t)UI_LANGUAGE_SPANISH);
     lv_obj_t *language_es_label = lv_label_create(language_es_button);
     lv_label_set_text(language_es_label, "ES");
     lv_obj_set_style_text_font(
         language_es_label, &lv_font_montserrat_16, 0);
     lv_obj_center(language_es_label);
 
-    sensor_temperature_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(sensor_temperature_button, 112, 50);
-    lv_obj_align(sensor_temperature_button, LV_ALIGN_BOTTOM_LEFT, 12, -16);
-    lv_obj_set_ext_click_area(sensor_temperature_button, 4);
-    lv_obj_set_style_radius(sensor_temperature_button, 8, 0);
+    brightness_label = lv_label_create(settings_home_page);
+    lv_obj_set_style_text_color(brightness_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(brightness_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(brightness_label, LV_ALIGN_TOP_LEFT, 18, 66);
+
+    brightness_slider = lv_slider_create(settings_home_page);
+    lv_obj_set_size(brightness_slider, 190, 22);
+    lv_obj_align(brightness_slider, LV_ALIGN_TOP_MID, 0, 106);
+    lv_slider_set_range(brightness_slider, 10, 255);
+    lv_slider_set_value(brightness_slider, screen_brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(
-        sensor_temperature_button,
-        lv_palette_darken(LV_PALETTE_GREEN, 1),
-        LV_STATE_PRESSED);
+        brightness_slider,
+        lv_palette_darken(LV_PALETTE_GREY, 3),
+        LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        brightness_slider,
+        lv_palette_main(LV_PALETTE_RED),
+        LV_PART_INDICATOR);
+    lv_obj_set_style_radius(
+        brightness_slider, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_radius(
+        brightness_slider, LV_RADIUS_CIRCLE, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(
+        brightness_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_radius(
+        brightness_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
+    lv_obj_set_style_width(brightness_slider, 40, LV_PART_KNOB);
+    lv_obj_set_style_height(brightness_slider, 40, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(brightness_slider, 16);
     lv_obj_add_event_cb(
-        sensor_temperature_button,
-        sensor_temperature_event,
-        LV_EVENT_CLICKED,
+        brightness_slider,
+        brightness_slider_event,
+        LV_EVENT_PRESSING,
+        NULL);
+    lv_obj_add_event_cb(
+        brightness_slider,
+        brightness_slider_release_event,
+        LV_EVENT_RELEASED,
         NULL);
 
+    lv_obj_t *brightness_down = create_settings_button(
+        settings_home_page, 58, 58, LV_ALIGN_TOP_LEFT, 16, 88,
+        brightness_step_event, (void *)(intptr_t)-15);
+    lv_obj_t *brightness_down_label = lv_label_create(brightness_down);
+    lv_label_set_text(brightness_down_label, "-");
+    lv_obj_set_style_text_font(
+        brightness_down_label, &lv_font_montserrat_32, 0);
+    lv_obj_center(brightness_down_label);
+
+    lv_obj_t *brightness_up = create_settings_button(
+        settings_home_page, 58, 58, LV_ALIGN_TOP_RIGHT, -16, 88,
+        brightness_step_event, (void *)(intptr_t)15);
+    lv_obj_t *brightness_up_label = lv_label_create(brightness_up);
+    lv_label_set_text(brightness_up_label, "+");
+    lv_obj_set_style_text_font(
+        brightness_up_label, &lv_font_montserrat_32, 0);
+    lv_obj_center(brightness_up_label);
+
+    lv_obj_t *settings_gauge_category_button = create_settings_button(
+        settings_home_page, 172, 50, LV_ALIGN_BOTTOM_LEFT, 14, -76,
+        settings_page_event, (void *)(intptr_t)SETTINGS_PAGE_GAUGE);
+    settings_gauge_category_label =
+        lv_label_create(settings_gauge_category_button);
+    lv_obj_set_style_text_font(
+        settings_gauge_category_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(settings_gauge_category_label);
+
+    lv_obj_t *settings_pressure_category_button = create_settings_button(
+        settings_home_page, 172, 50, LV_ALIGN_BOTTOM_RIGHT, -14, -76,
+        settings_page_event, (void *)(intptr_t)SETTINGS_PAGE_PRESSURE);
+    settings_pressure_category_label =
+        lv_label_create(settings_pressure_category_button);
+    lv_obj_set_style_text_font(
+        settings_pressure_category_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(settings_pressure_category_label);
+
+    lv_obj_t *settings_reset_all_button = create_settings_button(
+        settings_home_page, 190, 48, LV_ALIGN_BOTTOM_MID, 0, -14,
+        reset_confirmation_open_event, nullptr);
+    lv_obj_set_style_bg_color(
+        settings_reset_all_button,
+        lv_palette_darken(LV_PALETTE_RED, 3),
+        LV_STATE_DEFAULT);
+    settings_reset_all_label = lv_label_create(settings_reset_all_button);
+    lv_obj_set_style_text_font(
+        settings_reset_all_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(settings_reset_all_label);
+
+    lv_obj_t *settings_gauge_back_button = create_settings_button(
+        settings_gauge_page, 72, 46, LV_ALIGN_TOP_LEFT, 12, 10,
+        settings_page_event, (void *)(intptr_t)SETTINGS_PAGE_HOME);
+    settings_gauge_back_label = lv_label_create(settings_gauge_back_button);
+    lv_obj_set_style_text_font(
+        settings_gauge_back_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(settings_gauge_back_label);
+
+    settings_gauge_title_label = lv_label_create(settings_gauge_page);
+    lv_obj_set_style_text_color(
+        settings_gauge_title_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        settings_gauge_title_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(settings_gauge_title_label, LV_ALIGN_TOP_MID, 0, 22);
+
+    settings_unit_title_label = lv_label_create(settings_gauge_page);
+    lv_obj_set_style_text_color(
+        settings_unit_title_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        settings_unit_title_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(settings_unit_title_label, LV_ALIGN_TOP_LEFT, 18, 88);
+
+    unit_psi_button = create_settings_button(
+        settings_gauge_page, 100, 46, LV_ALIGN_TOP_LEFT, 142, 74,
+        pressure_unit_event, (void *)(intptr_t)PRESSURE_UNIT_PSI);
+    lv_obj_t *unit_psi_label = lv_label_create(unit_psi_button);
+    lv_label_set_text(unit_psi_label, "PSI");
+    lv_obj_set_style_text_font(unit_psi_label, &lv_font_montserrat_18, 0);
+    lv_obj_center(unit_psi_label);
+
+    unit_bar_button = create_settings_button(
+        settings_gauge_page, 100, 46, LV_ALIGN_TOP_LEFT, 256, 74,
+        pressure_unit_event, (void *)(intptr_t)PRESSURE_UNIT_BAR);
+    lv_obj_t *unit_bar_label = lv_label_create(unit_bar_button);
+    lv_label_set_text(unit_bar_label, "BAR");
+    lv_obj_set_style_text_font(unit_bar_label, &lv_font_montserrat_18, 0);
+    lv_obj_center(unit_bar_label);
+
+    sensor_temperature_button = create_settings_button(
+        settings_gauge_page, 342, 52, LV_ALIGN_TOP_MID, 0, 136,
+        sensor_temperature_event, nullptr);
     sensor_temperature_label = lv_label_create(sensor_temperature_button);
     lv_obj_set_style_text_color(
         sensor_temperature_label, lv_color_white(), 0);
     lv_obj_set_style_text_font(
         sensor_temperature_label, &lv_font_montserrat_16, 0);
     lv_obj_center(sensor_temperature_label);
-    update_sensor_temperature_button();
 
-    pressure_smoothing_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(pressure_smoothing_button, 112, 50);
-    lv_obj_align(pressure_smoothing_button, LV_ALIGN_BOTTOM_MID, 0, -16);
-    lv_obj_set_ext_click_area(pressure_smoothing_button, 4);
-    lv_obj_set_style_radius(pressure_smoothing_button, 8, 0);
-    lv_obj_set_style_bg_color(
-        pressure_smoothing_button,
-        lv_palette_darken(LV_PALETTE_GREEN, 1),
-        LV_STATE_PRESSED);
-    lv_obj_add_event_cb(
-        pressure_smoothing_button,
-        pressure_smoothing_open_event,
-        LV_EVENT_CLICKED,
-        NULL);
-
-    pressure_smoothing_label = lv_label_create(pressure_smoothing_button);
-    lv_obj_set_style_text_color(
-        pressure_smoothing_label, lv_color_white(), 0);
+    lv_obj_t *startup_duration_down = create_settings_button(
+        settings_gauge_page, 58, 58, LV_ALIGN_BOTTOM_LEFT, 24, -24,
+        startup_duration_step_event, (void *)(intptr_t)-1);
+    lv_obj_t *startup_duration_down_label =
+        lv_label_create(startup_duration_down);
+    lv_label_set_text(startup_duration_down_label, "-");
     lv_obj_set_style_text_font(
-        pressure_smoothing_label, &lv_font_montserrat_14, 0);
-    lv_obj_center(pressure_smoothing_label);
-    update_pressure_smoothing_controls();
+        startup_duration_down_label, &lv_font_montserrat_32, 0);
+    lv_obj_center(startup_duration_down_label);
 
-    pressure_offset_button = lv_btn_create(brightness_panel);
-    lv_obj_set_size(pressure_offset_button, 112, 50);
-    lv_obj_align(pressure_offset_button, LV_ALIGN_BOTTOM_RIGHT, -12, -16);
-    lv_obj_set_ext_click_area(pressure_offset_button, 4);
-    lv_obj_set_style_radius(pressure_offset_button, 8, 0);
-    lv_obj_set_style_bg_color(
-        pressure_offset_button,
-        lv_palette_darken(LV_PALETTE_GREEN, 1),
-        LV_STATE_PRESSED);
-    lv_obj_add_event_cb(
-        pressure_offset_button,
-        pressure_offset_open_event,
-        LV_EVENT_CLICKED,
-        NULL);
+    startup_duration_label = lv_label_create(settings_gauge_page);
+    lv_obj_set_style_text_color(
+        startup_duration_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        startup_duration_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(startup_duration_label, LV_ALIGN_BOTTOM_MID, 0, -43);
 
+    lv_obj_t *startup_duration_up = create_settings_button(
+        settings_gauge_page, 58, 58, LV_ALIGN_BOTTOM_RIGHT, -24, -24,
+        startup_duration_step_event, (void *)(intptr_t)1);
+    lv_obj_t *startup_duration_up_label =
+        lv_label_create(startup_duration_up);
+    lv_label_set_text(startup_duration_up_label, "+");
+    lv_obj_set_style_text_font(
+        startup_duration_up_label, &lv_font_montserrat_32, 0);
+    lv_obj_center(startup_duration_up_label);
+
+    lv_obj_t *settings_pressure_back_button = create_settings_button(
+        settings_pressure_page, 72, 46, LV_ALIGN_TOP_LEFT, 12, 10,
+        settings_page_event, (void *)(intptr_t)SETTINGS_PAGE_HOME);
+    settings_pressure_back_label =
+        lv_label_create(settings_pressure_back_button);
+    lv_obj_set_style_text_font(
+        settings_pressure_back_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(settings_pressure_back_label);
+
+    settings_pressure_title_label = lv_label_create(settings_pressure_page);
+    lv_obj_set_style_text_color(
+        settings_pressure_title_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        settings_pressure_title_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(settings_pressure_title_label, LV_ALIGN_TOP_MID, 0, 22);
+
+    pressure_offset_button = create_settings_button(
+        settings_pressure_page, 342, 68, LV_ALIGN_TOP_MID, 0, 78,
+        pressure_offset_open_event, nullptr);
     pressure_offset_button_label = lv_label_create(pressure_offset_button);
     lv_obj_set_style_text_color(
         pressure_offset_button_label, lv_color_white(), 0);
     lv_obj_set_style_text_font(
-        pressure_offset_button_label, &lv_font_montserrat_14, 0);
+        pressure_offset_button_label, &lv_font_montserrat_18, 0);
     lv_obj_center(pressure_offset_button_label);
+
+    pressure_smoothing_button = create_settings_button(
+        settings_pressure_page, 342, 68, LV_ALIGN_TOP_MID, 0, 174,
+        pressure_smoothing_open_event, nullptr);
+    pressure_smoothing_label = lv_label_create(pressure_smoothing_button);
+    lv_obj_set_style_text_color(
+        pressure_smoothing_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        pressure_smoothing_label, &lv_font_montserrat_18, 0);
+    lv_obj_center(pressure_smoothing_label);
+
+    settings_close_button = create_settings_button(
+        brightness_panel, 64, 48, LV_ALIGN_TOP_RIGHT, -12, 10,
+        brightness_close_event, nullptr);
+    lv_obj_set_ext_click_area(settings_close_button, 10);
+    lv_obj_t *settings_close_label = lv_label_create(settings_close_button);
+    lv_label_set_text(settings_close_label, LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_font(
+        settings_close_label, &lv_font_montserrat_32, 0);
+    lv_obj_center(settings_close_label);
+
+    update_pressure_unit_buttons();
+    update_sensor_temperature_button();
+    update_pressure_offset_controls();
+    update_pressure_smoothing_controls();
 
     pressure_offset_panel = lv_obj_create(brightness_panel);
     lv_obj_set_size(pressure_offset_panel, 360, 220);
@@ -3811,8 +4187,9 @@ void create_ui()
     lv_obj_center(pressure_offset_up_label);
 
     lv_obj_t *pressure_offset_reset = lv_btn_create(pressure_offset_panel);
-    lv_obj_set_size(pressure_offset_reset, 110, 42);
+    lv_obj_set_size(pressure_offset_reset, 110, 46);
     lv_obj_align(pressure_offset_reset, LV_ALIGN_BOTTOM_LEFT, 16, -14);
+    lv_obj_set_ext_click_area(pressure_offset_reset, 4);
     lv_obj_set_style_radius(pressure_offset_reset, 8, 0);
     lv_obj_set_style_bg_color(
         pressure_offset_reset,
@@ -3834,8 +4211,9 @@ void create_ui()
     lv_obj_center(pressure_offset_reset_label);
 
     lv_obj_t *pressure_offset_done = lv_btn_create(pressure_offset_panel);
-    lv_obj_set_size(pressure_offset_done, 110, 42);
+    lv_obj_set_size(pressure_offset_done, 110, 46);
     lv_obj_align(pressure_offset_done, LV_ALIGN_BOTTOM_RIGHT, -16, -14);
+    lv_obj_set_ext_click_area(pressure_offset_done, 4);
     lv_obj_set_style_radius(pressure_offset_done, 8, 0);
     lv_obj_set_style_bg_color(
         pressure_offset_done,
@@ -3988,9 +4366,10 @@ void create_ui()
 
     lv_obj_t *pressure_smoothing_reset =
         lv_btn_create(pressure_smoothing_panel);
-    lv_obj_set_size(pressure_smoothing_reset, 110, 42);
+    lv_obj_set_size(pressure_smoothing_reset, 110, 46);
     lv_obj_align(
         pressure_smoothing_reset, LV_ALIGN_BOTTOM_LEFT, 14, -10);
+    lv_obj_set_ext_click_area(pressure_smoothing_reset, 4);
     lv_obj_set_style_radius(pressure_smoothing_reset, 8, 0);
     lv_obj_set_style_bg_color(
         pressure_smoothing_reset,
@@ -4013,9 +4392,10 @@ void create_ui()
 
     lv_obj_t *pressure_smoothing_done =
         lv_btn_create(pressure_smoothing_panel);
-    lv_obj_set_size(pressure_smoothing_done, 110, 42);
+    lv_obj_set_size(pressure_smoothing_done, 110, 46);
     lv_obj_align(
         pressure_smoothing_done, LV_ALIGN_BOTTOM_RIGHT, -14, -10);
+    lv_obj_set_ext_click_area(pressure_smoothing_done, 4);
     lv_obj_set_style_radius(pressure_smoothing_done, 8, 0);
     lv_obj_set_style_bg_color(
         pressure_smoothing_done,
@@ -4035,6 +4415,70 @@ void create_ui()
     lv_obj_set_style_text_font(
         pressure_smoothing_done_label, &lv_font_montserrat_16, 0);
     lv_obj_center(pressure_smoothing_done_label);
+
+    reset_confirmation_panel = lv_obj_create(brightness_panel);
+    lv_obj_set_size(reset_confirmation_panel, 350, 190);
+    lv_obj_align(reset_confirmation_panel, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(
+        reset_confirmation_panel, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(
+        reset_confirmation_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(
+        reset_confirmation_panel,
+        lv_palette_main(LV_PALETTE_RED),
+        0);
+    lv_obj_set_style_border_width(reset_confirmation_panel, 2, 0);
+    lv_obj_set_style_radius(reset_confirmation_panel, 8, 0);
+    lv_obj_set_style_pad_all(reset_confirmation_panel, 0, 0);
+    lv_obj_clear_flag(
+        reset_confirmation_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(reset_confirmation_panel, LV_OBJ_FLAG_HIDDEN);
+
+    reset_confirmation_title_label =
+        lv_label_create(reset_confirmation_panel);
+    lv_obj_set_style_text_color(
+        reset_confirmation_title_label,
+        lv_palette_lighten(LV_PALETTE_RED, 1),
+        0);
+    lv_obj_set_style_text_font(
+        reset_confirmation_title_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(
+        reset_confirmation_title_label, LV_ALIGN_TOP_MID, 0, 16);
+
+    reset_confirmation_message_label =
+        lv_label_create(reset_confirmation_panel);
+    lv_obj_set_style_text_color(
+        reset_confirmation_message_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(
+        reset_confirmation_message_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_align(
+        reset_confirmation_message_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(
+        reset_confirmation_message_label, LV_ALIGN_CENTER, 0, -12);
+
+    lv_obj_t *reset_confirmation_cancel = create_settings_button(
+        reset_confirmation_panel, 140, 48,
+        LV_ALIGN_BOTTOM_LEFT, 16, -14,
+        reset_confirmation_cancel_event, nullptr);
+    reset_confirmation_cancel_label =
+        lv_label_create(reset_confirmation_cancel);
+    lv_obj_set_style_text_font(
+        reset_confirmation_cancel_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(reset_confirmation_cancel_label);
+
+    lv_obj_t *reset_confirmation_confirm = create_settings_button(
+        reset_confirmation_panel, 140, 48,
+        LV_ALIGN_BOTTOM_RIGHT, -16, -14,
+        reset_all_settings_event, nullptr);
+    lv_obj_set_style_bg_color(
+        reset_confirmation_confirm,
+        lv_palette_darken(LV_PALETTE_RED, 2),
+        LV_STATE_DEFAULT);
+    reset_confirmation_confirm_label =
+        lv_label_create(reset_confirmation_confirm);
+    lv_obj_set_style_text_font(
+        reset_confirmation_confirm_label, &lv_font_montserrat_16, 0);
+    lv_obj_center(reset_confirmation_confirm_label);
 
     update_translated_ui_text();
 
@@ -4257,7 +4701,7 @@ bool update_startup_sequence(uint32_t now)
 
     uint32_t elapsed = now - startup_phase_started_ms;
     if (startup_phase == STARTUP_SPLASH) {
-        if (elapsed < STARTUP_SPLASH_MS) return true;
+        if (elapsed < startup_logo_duration_ms()) return true;
 
         startup_splash_visible = false;
         memcpy(composited_frame, static_frame,
@@ -4314,6 +4758,7 @@ void setup()
     load_pressure_smoothing_setting();
     load_pressure_offset();
     load_screen_brightness();
+    load_startup_logo_setting();
     Serial.printf("Unit: %s\n",
                   pressure_unit == PRESSURE_UNIT_BAR ? "BAR" : "PSI");
     Serial.printf(
@@ -4325,6 +4770,7 @@ void setup()
     print_pressure_smoothing_settings();
     Serial.printf("Pressure offset: %+.1f PSI\n", pressure_offset_psi());
     Serial.printf("Brightness: %u\n", screen_brightness);
+    Serial.printf("Startup logo: %u s\n", startup_logo_seconds);
 #if ENABLE_PERF_TELEMETRY
     esp_rom_printf(
         "Memory: flash=%lu MB, psram=%lu MB, free_psram=%lu KB\n",

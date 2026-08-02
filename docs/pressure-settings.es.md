@@ -124,9 +124,11 @@ El smoothing no:
 - sustituye las comprobaciones de lecturas inválidas, antiguas o inverosímiles.
 
 Abre el menú mediante una pulsación larga sobre el logotipo Civic. Selecciona
-`EN` o `ES` en la parte superior si es necesario, pulsa `SMOOTH`/`SUAV.` y
-elige `OFF`/`SIN`, `EMA` o `1 EURO`. El idioma, el modo y todos los parámetros
-activos quedan guardados tras reiniciar.
+`EN` o `ES` en la primera pantalla si es necesario, entra en
+`PRESSURE`/`PRESION`, pulsa `SMOOTH`/`SUAV.` y elige `OFF`/`SIN`, `EMA` o
+`1 EURO`. One Euro es el modo inicial de fábrica. Una actualización no cambia
+la selección ya guardada; el idioma, el modo y los parámetros sobreviven a los
+reinicios.
 
 ## SIN: respuesta inmediata
 
@@ -194,7 +196,7 @@ retardo.
 - `MIN` mayor: sigue mejor los cambios pequeños, pero permite más ruido visible.
 
 El rango es `0,5–5,0 Hz` en pasos de `0,1 Hz`. El valor predeterminado es
-`2,0 Hz`. Se expresa en hercios porque es la frecuencia de corte del filtro
+`1,0 Hz`. Se expresa en hercios porque es la frecuencia de corte del filtro
 paso bajo, no la frecuencia de actualización del sensor ni de la pantalla.
 
 ### Beta
@@ -208,13 +210,15 @@ paso bajo, no la frecuencia de actualización del sensor ni de la pantalla.
   hacerse más visibles.
 
 El rango es `0,00–3,00` por kPa en pasos de `0,05`. El valor predeterminado es
-`1,00`. El corte del filtro de la derivada permanece fijo en `1 Hz` para
+`0,25`. El corte del filtro de la derivada permanece fijo en `1 Hz` para
 mantener estable la adaptación y no se expone en el menú.
 
 ## Procedimiento recomendado de ajuste
 
 Empieza pulsando `RESTAURAR`. Esto recupera alfa EMA `0,35`, corte mínimo One
-Euro `2,0 Hz` y beta `1,00` sin cambiar el modo seleccionado.
+Euro `1,0 Hz` y beta `0,25` sin cambiar el modo seleccionado. Estos valores One
+Euro añaden deliberadamente más filtrado que el ajuste anterior `2,0/1,00`
+para reducir el jitter visible de la wastegate electrónica.
 
 Para EMA:
 
@@ -226,7 +230,7 @@ Para EMA:
 
 Para One Euro:
 
-1. Empieza con `MIN 2,0 Hz` y `BETA 1,00`.
+1. Empieza con `MIN 1,0 Hz` y `BETA 0,25`.
 2. Con presión estable, reduce `MIN` hasta lograr la estabilidad deseada.
 3. Aplica un cambio de presión rápido y representativo.
 4. Aumenta `BETA` hasta obtener una respuesta transitoria suficientemente
@@ -248,7 +252,8 @@ final en el coche sin manipular el reloj mientras conduces.
 | Smoothing sencillo y ligero | EMA `0,50` |
 | Smoothing sencillo y equilibrado | EMA `0,35` |
 | Máxima estabilidad mediante EMA | EMA `0,15–0,25` |
-| Estable en reposo y rápido con turbo | One Euro `MIN 2,0`, `BETA 1,00` |
+| Filtrado inicial para wastegate electrónica | One Euro `MIN 1,0`, `BETA 0,25` |
+| Respuesta adaptativa más rápida | One Euro `MIN 2,0`, `BETA 1,00` |
 
 Son puntos de partida, no valores de calibración. El mejor ajuste depende del
 volumen del manguito, la instalación, el comportamiento del motor y las
@@ -267,4 +272,7 @@ El modo seleccionado y sus valores se guardan de forma persistente:
 `RESTAURAR` recupera los tres parámetros iniciales del filtro, pero mantiene
 deliberadamente el modo seleccionado. Cambiar a SIN no borra los valores
 guardados de EMA ni de One Euro, de modo que se puede volver a cualquiera de
-los modos filtrados sin introducir de nuevo su configuración.
+los modos filtrados sin introducir de nuevo su configuración. El
+`RESET GENERAL` protegido de la primera pantalla es diferente: tras confirmar,
+restaura todos los ajustes, incluido One Euro como modo activo con `MIN 1,0` y
+`BETA 0,25`.

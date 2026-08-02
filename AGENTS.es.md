@@ -79,8 +79,9 @@ fotograma.
 
 1. El logotipo de arranque se muestra inmediatamente.
 2. Se reservan en PSRAM dos framebuffers RGB565 completos.
-3. Durante los cinco segundos de arranque, la caché comprimida de 4,90 MB se
-   valida y descomprime directamente en PSRAM.
+3. Mientras se muestra la pantalla de arranque configurable, la caché
+   comprimida de 4,90 MB se valida y descomprime directamente en PSRAM. La
+   duración persistente va de 1 a 10 segundos y comienza en un segundo.
 4. El fotograma estático proporciona marcas, etiquetas, unidad y logotipo Civic.
 5. Una caché de 541 estados proporciona el arco móvil y el cursor rojo en pasos
    de 0,5 grados.
@@ -125,8 +126,10 @@ Estas reglas protegen el resultado verificado en hardware:
 - Las compilaciones de producción deben conservar a `0`
   `ENABLE_PERF_TELEMETRY`, `ENABLE_RENDER_DIAGNOSTICS`,
   `ENABLE_HARDWARE_TELEMETRY`, `DUMP_PREBAKED_FRAMES` y `DUMP_BAKED_CACHE`.
-- Conserva la pantalla de arranque de cinco segundos y el barrido suave de
-  subida y bajada. La transición a LIVE no debe parpadear a presión máxima.
+- Conserva el control persistente de pantalla de arranque entre 1 y 10 segundos
+  mediante la clave `boot-seconds`, su valor inicial de un segundo y el barrido
+  suave de subida y bajada. La transición a LIVE no debe parpadear a presión
+  máxima.
 
 Si un cambio visual puede permanecer estrictamente dentro de una zona estática
 que nunca intersecta el arco ni el cursor, modifica sólo el fotograma estático.
@@ -148,10 +151,13 @@ sentidos.
   No lo sustituyas por una consulta X/Y sin transformar.
 - Mantén controles aptos para el dedo y evita zonas de clic ampliadas que se
   solapen.
-- Prueba toque Civic, pulsación larga Civic, cierre, PSI/BAR, deslizador y
-  botones de brillo, botones y restauración del offset, controles persistentes
-  `EN`/`ES` y temperatura, y selección SIN/EMA/1 EURO con sus parámetros,
-  restauración y cierre. Verifica ambos idiomas y su persistencia al reiniciar.
+- Prueba toque Civic, pulsación larga Civic, cierre, las rutas
+  INICIO/Medidor/Presión y ambos botones de vuelta. Verifica que `EN`/`ES`,
+  brillo y reset general protegido permanezcan en INICIO; prueba PSI/BAR,
+  temperatura y duración de arranque bajo Medidor; prueba acceso a offset y
+  smoothing, todos los controles de sus editores y todas las rutas de
+  cierre/cancelación bajo Presión. Verifica ambos idiomas, persistencia y que
+  ninguna ruta deje una pantalla vacía o negra.
 
 ## Trabajo sobre el sensor
 
@@ -166,10 +172,12 @@ bloque contiguo de cinco bytes.
   Conserva tres modos persistentes: SIN pasa la muestra válida sin smoothing;
   EMA expone alfa `0,05..1,00` en pasos de 0,05, con valor inicial 0,35; One
   Euro utiliza el intervalo real, corte de derivada fijo en 1 Hz, corte mínimo
-  `0,5..5,0 Hz`, inicialmente 2,0, y beta `0,00..3,00` por kPa, inicialmente
-  1,00, en pasos de 0,05. Guarda `smooth-mode`, `ema-alpha`, `oe-min-hz` y
-  `oe-beta`, conserva la migración de `smoothing` y restaura parámetros sin
-  cambiar el modo.
+  `0,5..5,0 Hz`, inicialmente 1,0, y beta `0,00..3,00` por kPa, inicialmente
+  0,25, en pasos de 0,05. One Euro es el modo inicial para instalaciones nuevas
+  y reset general. Guarda `smooth-mode`, `ema-alpha`, `oe-min-hz` y `oe-beta`,
+  conserva la migración de `smoothing` sin sobrescribir un modo ya guardado. El
+  reset del filtro sólo restaura sus parámetros; el reset general protegido
+  restaura todo el espacio de ajustes a los valores del proyecto.
 - Usa el valor calibrado de fábrica sin cero automático. Conserva el offset
   opcional persistente en décimas de PSI mediante `psi-offset`, limitado a
   `-1,5..+1,5 PSI`, inicialmente cero y convertido mediante kPa canónicos antes

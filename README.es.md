@@ -35,16 +35,20 @@ arranque. Antes de mostrar las lecturas reales se ejecuta un barrido inicial.
 - Color del arco con transición suave en función de la presión.
 - Arco, cursor, números y logotipo renderizados desde caché.
 - Formato de caché versionado y validado mediante tamaño, ABI y CRC.
-- Pantalla Honda/Civic de cinco segundos y barrido inicial.
+- Pantalla Honda/Civic configurable entre 1 y 10 segundos, con un segundo
+  como valor inicial, seguida del barrido de arranque.
 - Toque sobre el logotipo Civic para activar o desactivar el modo SHOW.
-- Pulsación larga sobre el logotipo para abrir unidades, brillo, offset,
-  temperatura del sensor y smoothing.
+- Pulsación larga sobre el logotipo para abrir un menú de ajustes por
+  categorías. Idioma, brillo y reset general permanecen en la primera
+  pantalla; medidor y presión tienen pantallas propias.
 - Selector persistente `EN`/`ES` que traduce inmediatamente todo el menú sin
   reiniciar.
 - Offset persistente de -1,5 a +1,5 PSI en pasos de 0,1 PSI, con conversión
   coherente cuando el reloj muestra BAR.
-- Procesamiento seleccionable sin smoothing, mediante EMA configurable o
-  mediante One Euro configurable, con restauración de valores predeterminados.
+- One Euro activado inicialmente con un ajuste más intenso contra el jitter,
+  además de los modos SIN y EMA configurables.
+- Reset general protegido que devuelve todos los ajustes persistentes a sus
+  valores iniciales.
 - Brillo inicial del 75 % y ajustes persistentes desde el menú.
 - Lectura digital de presión y temperatura del XGZP6847D probada en hardware.
 - Aviso visible `ERR` después de un segundo sin una lectura válida.
@@ -106,21 +110,28 @@ cada muestra válida sin suavizado temporal. `EMA` ofrece una respuesta sencilla
 y configurable, mientras que `1 EURO` suaviza más intensamente los cambios
 lentos y responde con mayor rapidez ante variaciones rápidas de turbo.
 
-El editor persistente permite ajustar el alfa de EMA entre `0,05` y `1,00` en
-pasos de `0,05` (valor inicial `0,35`). One Euro permite una frecuencia de corte
-mínima de `0,5` a `5,0 Hz` en pasos de `0,1 Hz` (valor inicial `2,0 Hz`) y una
-beta de `0,00` a `3,00` por kPa en pasos de `0,05` (valor inicial `1,00`). El
-corte del filtro de la derivada permanece fijo en `1 Hz`. `RESTAURAR` recupera
-los valores iniciales sin cambiar el modo seleccionado. El modo y sus valores
-se conservan tras reiniciar.
+One Euro es el modo inicial de fábrica. Su ajuste más intenso utiliza un corte
+mínimo de `1,0 Hz` y beta `0,25` por kPa para reducir el jitter visible de la
+wastegate electrónica sin perder la respuesta adaptativa ante cambios mayores
+de turbo. El editor persistente permite ajustar alfa EMA entre `0,05` y `1,00`
+en pasos de `0,05` (valor inicial `0,35`). One Euro sigue siendo ajustable entre
+`0,5` y `5,0 Hz` en pasos de `0,1 Hz`, y entre `0,00` y `3,00` beta por kPa en
+pasos de `0,05`. El corte de la derivada permanece fijo en `1 Hz`. El botón
+`RESTAURAR` del filtro recupera estos parámetros sin cambiar el modo. El modo y
+sus valores se conservan tras reiniciar.
 
 Consulta [Configuración de presión, offset y smoothing](docs/pressure-settings.es.md)
 para ver la explicación detallada, el procedimiento recomendado de ajuste y
 ejemplos prácticos.
 
-Selecciona `EN` o `ES` en la parte superior del menú para cambiar el idioma.
-La elección queda guardada tras reiniciar. Las unidades, los valores numéricos
-y los indicadores universales `ERR`/`MAX` no cambian.
+La primera pantalla de ajustes contiene siempre `EN`/`ES`, brillo, `MEDIDOR`,
+`PRESION` y el `RESET GENERAL` protegido. `MEDIDOR` contiene PSI/BAR,
+temperatura y la duración persistente del logotipo entre 1 y 10 segundos.
+`PRESION` contiene offset y smoothing. El idioma queda guardado tras reiniciar;
+las unidades, los valores numéricos y los indicadores universales `ERR`/`MAX`
+no cambian. Confirmar `RESET GENERAL` recupera inglés, brillo al 75 %, PSI,
+temperatura desactivada, logotipo de un segundo, offset cero y los valores One
+Euro descritos arriba.
 
 La visualización de la temperatura interna del sensor está desactivada de
 forma predeterminada y puede habilitarse permanentemente con `TEMP: SI/NO`.
