@@ -1,9 +1,9 @@
-# Golden Version: Final Digital-Sensor Firmware
+# Golden Version: Categorized-Settings Firmware
 
 [Home](README.md) | [Español](GOLDEN_VERSION.es.md) | **English**
 
-Date: 2026-07-28
-Status: Hardware verified and released as v1.3.0
+Date: 2026-08-02
+Status: Hardware boot-verified and released as v1.4.0
 
 - Smooth forward and reverse SHOW animation.
 - No visible cursor or arc artifacts.
@@ -23,11 +23,21 @@ Status: Hardware verified and released as v1.3.0
   verified across restarts.
 - Persistent `EN`/`ES` menu translation, pressure offset and selectable
   OFF/EMA/One Euro smoothing controls were verified on hardware.
+- Categorized HOME, Gauge and Pressure navigation, every editor route and the
+  guarded general-reset confirmation passed structural validation. All touch
+  targets are at least 44 pixels and simultaneous extended hit areas do not
+  overlap.
+- Startup-logo duration is persistent from 1 to 10 seconds and defaults to one
+  second. One Euro is the fresh-install and general-reset default with
+  `MIN 1.0` and `BETA 0.25`.
+- The exact v1.4.0 application image was flashed on the target. Serial startup
+  confirmed the FT3168, XGZP6847D, PSRAM and prebaked renderer initialized
+  successfully while existing NVS preferences remained intact.
 - Complete English and Spanish documentation is connected by same-language
   navigation from every translated section.
 - Production diagnostics are disabled while boot, error and recovery messages
   remain available over USB serial.
-- Final application and complete flash images are stored in `firmware/1.3.0/`.
+- Final application and complete flash images are stored in `firmware/1.4.0/`.
 
 The factory-calibrated digital pressure result is used directly without
 software zero calibration.

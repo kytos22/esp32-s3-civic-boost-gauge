@@ -5,8 +5,9 @@
 Turbo boost gauge for the Waveshare ESP32-S3-Touch-AMOLED-1.43. The interface
 is designed for the 466x466 AMOLED with the USB connector facing down.
 
-The current production release is **v1.3.0**, using the hardware-tested
-XGZP6847D digital pressure sensor and the stable FT3168 shared-I2C touch path.
+The current production release is **v1.4.0**, adding the categorized settings
+menu and new project defaults while preserving the hardware-tested XGZP6847D
+digital pressure sensor and stable FT3168 shared-I2C touch path.
 
 The renderer uses pre-generated static visuals and a build-time gauge cache for
 smooth 60 Hz updates. The 4.90 MB cache is stored in the firmware as a 465 KB
@@ -15,15 +16,15 @@ screen. An initial sweep runs before live sensor readings begin.
 
 ## PSI gauge demo
 
-![Civic boost gauge PSI demo](firmware/1.3.0/civic-boost-gauge-psi-demo.gif)
+![Civic boost gauge PSI demo](firmware/1.4.0/civic-boost-gauge-psi-demo.gif)
 
 ## BAR gauge demo
 
-![Civic boost gauge BAR demo](firmware/1.3.0/civic-boost-gauge-bar-demo.gif)
+![Civic boost gauge BAR demo](firmware/1.4.0/civic-boost-gauge-bar-demo.gif)
 
 ## Boot screen
 
-![Honda Civic boot screen](firmware/1.3.0/civic-boost-gauge-boot.png)
+![Honda Civic boot screen](firmware/1.4.0/civic-boost-gauge-boot.png)
 
 ## Features
 
@@ -32,16 +33,19 @@ screen. An initial sweep runs before live sensor readings begin.
 - Smooth pressure-dependent arc color.
 - Prebaked arc, cursor, number and logo rendering.
 - Versioned cache format with size, ABI and CRC validation.
-- Five-second Honda/Civic startup screen and initial sweep.
+- Configurable 1 to 10-second Honda/Civic startup screen, defaulting to one
+  second, followed by the initial sweep.
 - Capacitive touch on the Civic logo to toggle SHOW mode.
-- Long press on the Civic logo for unit selection, brightness, pressure offset
-  and persistent sensor-temperature and smoothing controls.
+- Long press on the Civic logo for a categorized settings menu. Language,
+  brightness and the guarded general reset stay on its first page; gauge and
+  pressure settings have dedicated pages.
 - Persistent `EN`/`ES` selector that translates the complete settings menu
   immediately without rebooting.
 - Persistent pressure offset adjustable from -1.5 to +1.5 PSI in 0.1 PSI
   steps, with consistent conversion when the gauge is shown in BAR.
-- Selectable raw, configurable EMA or configurable One Euro pressure
-  processing, with one-tap restoration of the filter defaults.
+- One Euro pressure processing enabled by default with stronger anti-jitter
+  tuning, plus selectable raw and configurable EMA modes.
+- Guarded general reset that restores every persistent setting to its default.
 - 75% default display brightness with persistent menu adjustments.
 - Hardware-tested XGZP6847D digital pressure and temperature acquisition.
 - Visible `ERR` warning after one second without a valid sensor reading.
@@ -99,19 +103,30 @@ smoothing. `EMA` offers a simple configurable response, while `1 EURO`
 automatically smooths slow changes more strongly and reacts faster to rapid
 boost changes.
 
+One Euro is the factory-default mode. Its stronger default tuning uses a
+`1.0 Hz` minimum cutoff and `0.25` beta per kPa to reduce visible electronic
+wastegate jitter while retaining adaptive response to larger boost changes.
 The persistent editor provides EMA alpha from `0.05` to `1.00` in `0.05`
-steps (default `0.35`). One Euro provides a minimum cutoff from `0.5` to
-`5.0 Hz` in `0.1 Hz` steps (default `2.0 Hz`) and beta from `0.00` to `3.00`
-per kPa in `0.05` steps (default `1.00`). Its derivative cutoff remains fixed
-at `1 Hz`. `RESET` restores these parameter defaults without changing the
-selected mode. Mode and values are retained across restarts.
+steps (default `0.35`). One Euro remains adjustable from `0.5` to `5.0 Hz` in
+`0.1 Hz` steps and from `0.00` to `3.00` beta per kPa in `0.05` steps. Its
+derivative cutoff remains fixed at `1 Hz`. The filter editor's `RESET` restores
+these parameter defaults without changing the selected mode. Mode and values
+are retained across restarts and firmware updates. On a device carrying older
+saved filter values, press the filter editor's `RESET` to adopt the v1.4.0
+tuning without changing any other setting, or use `RESET ALL` to restore every
+project default.
 
 See [Pressure setup, offset and smoothing](docs/pressure-settings.md) for a
 detailed explanation, recommended tuning procedure and practical examples.
 
-Select `EN` or `ES` at the top of the settings menu to change its language.
-The choice is stored across restarts. Pressure units, numeric values and the
-universal `ERR`/`MAX` status indicators remain unchanged.
+The first settings page always contains `EN`/`ES`, brightness, `GAUGE`,
+`PRESSURE` and the guarded `RESET ALL` action. `GAUGE` contains PSI/BAR,
+temperature and the persistent 1 to 10-second startup-logo duration.
+`PRESSURE` contains offset and smoothing. The language choice is stored across
+restarts; pressure units, numeric values and the universal `ERR`/`MAX` status
+indicators remain unchanged. Confirming `RESET ALL` restores English, 75%
+brightness, PSI, temperature off, a one-second logo, zero offset and the One
+Euro defaults described above.
 
 The sensor's internal temperature display is disabled by default and can be
 enabled permanently with the menu's `TEMP: OFF/ON` button. When enabled, its
@@ -164,8 +179,8 @@ or SCL lines.
 
 ## Firmware download
 
-Download the complete v1.3.0 package from the
-[GitHub release page](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.3.0).
+Download the complete v1.4.0 package from the
+[GitHub release page](https://github.com/kytos22/esp32-s3-civic-boost-gauge/releases/tag/v1.4.0).
 Use the full image at flash address `0x0` for a complete installation. Use the
 application-only image at `0x10000` only when the board already has the matching
 bootloader and partition table. Verify downloaded files against
@@ -194,7 +209,7 @@ sensor path. It documents the verified architecture, invariants and validation
 workflows used by this project.
 
 The validated renderer snapshot is documented in `GOLDEN_VERSION.md`. Version
-1.3.0 firmware images and both gauge GIFs are in `firmware/1.3.0/`.
+1.4.0 firmware images and both gauge GIFs are in `firmware/1.4.0/`.
 
 ## Prebaked cache
 

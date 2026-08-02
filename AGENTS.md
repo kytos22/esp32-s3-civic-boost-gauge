@@ -11,7 +11,7 @@ otherwise.
 
 This is a hardware-tested turbo boost gauge for the Waveshare
 ESP32-S3-Touch-AMOLED-1.43 (466x466 SH8601 AMOLED with FT3168 touch). The board
-is mounted with the USB connector facing down. Release `v1.3.0` is the current
+is mounted with the USB connector facing down. Release `v1.4.0` is the current
 production baseline.
 
 The visual renderer is considered stable and artifact-free. Read these before
@@ -73,8 +73,9 @@ The gauge is not rendered conventionally by LVGL every frame.
 
 1. The startup logo is displayed immediately.
 2. Two full RGB565 framebuffers are allocated in PSRAM.
-3. During the five-second startup screen, the compressed 4.90 MB cache is
-   validated and decompressed directly into PSRAM.
+3. While the configurable startup screen is visible, the compressed 4.90 MB
+   cache is validated and decompressed directly into PSRAM. The persistent
+   duration is 1 to 10 seconds and defaults to one second.
 4. The static frame supplies ticks, labels, unit and Civic logo.
 5. A 541-state cache supplies the moving arc and red cursor at 0.5-degree
    increments.
@@ -121,8 +122,10 @@ These rules protect the hardware-verified result:
 - Production builds must leave `ENABLE_PERF_TELEMETRY`,
   `ENABLE_RENDER_DIAGNOSTICS`, `ENABLE_HARDWARE_TELEMETRY`,
   `DUMP_PREBAKED_FRAMES` and `DUMP_BAKED_CACHE` set to `0`.
-- Preserve the five-second boot screen and smooth up/down startup sweep. The
-  transition to LIVE must not flash briefly to maximum pressure.
+- Preserve the persistent 1 to 10-second boot-screen control stored in
+  Preferences key `boot-seconds`, its one-second default and the smooth up/down
+  startup sweep. The transition to LIVE must not flash briefly to maximum
+  pressure.
 
 If a requested visual change can stay strictly inside a static area that never
 intersects the arc/cursor path, prefer rebuilding only the static frame. If in
@@ -141,11 +144,12 @@ doubt, regenerate the cache and test both directions of the full sweep.
 - The brightness slider projects the touch point onto its transformed visual
   axis. Do not replace this with an untransformed X/Y lookup.
 - Keep controls finger-sized and avoid overlapping extended click areas.
-- Test Civic click, Civic long press, close, PSI/BAR buttons, brightness
-  slider, brightness and offset `+`/`-` buttons, offset reset/done, the
-  persistent `EN`/`ES` and temperature controls, and smoothing OFF/EMA/1 EURO
-  selection, parameter `+`/`-`, reset and done after touch changes. Verify
-  translated labels in both languages and language persistence after reboot.
+- Test Civic click, Civic long press, close, the HOME/Gauge/Pressure page
+  routes and both back buttons. Verify `EN`/`ES`, brightness and guarded general
+  reset remain on HOME; test PSI/BAR, temperature and startup-duration `+`/`-`
+  under Gauge; test offset and smoothing entry, every editor control and every
+  done/cancel route under Pressure. Verify translated labels in both languages,
+  persistence after reboot, and that no route leaves a blank or black page.
 
 ## Sensor Work
 
@@ -159,11 +163,14 @@ at 60 Hz. Pressure and temperature are read as one contiguous five-byte block.
   boundary. Preserve the three persistent modes: OFF must pass the raw valid
   sample with no smoothing; EMA must expose alpha `0.05..1.00` in 0.05 steps
   (default 0.35); One Euro must use the real sample interval, fixed 1 Hz
-  derivative cutoff, configurable `0.5..5.0 Hz` minimum cutoff (default 2.0)
-  and `0.00..3.00` beta per kPa (default 1.00) in 0.05 steps. Store these in
-  Preferences keys `smooth-mode`, `ema-alpha`, `oe-min-hz` and `oe-beta`;
-  retain migration from legacy boolean key `smoothing`. Reset restores the
-  filter parameter defaults without changing the selected mode.
+  derivative cutoff, configurable `0.5..5.0 Hz` minimum cutoff (default 1.0)
+  and `0.00..3.00` beta per kPa (default 0.25) in 0.05 steps. One Euro is the
+  fresh-install and general-reset default mode. Store these in Preferences keys
+  `smooth-mode`, `ema-alpha`, `oe-min-hz` and `oe-beta`; retain migration from
+  legacy boolean key `smoothing` without overwriting an existing saved mode.
+  Filter reset restores only filter parameters without changing the mode;
+  guarded general reset restores the complete namespace to all project
+  defaults.
 - Use the factory-calibrated pressure value without automatic zero calibration.
   Preserve the opt-in persistent manual offset stored as tenths of PSI in
   Preferences key `psi-offset`; it must remain limited to `-1.5..+1.5 PSI`,
@@ -197,10 +204,10 @@ If `pio` is not on PATH on Windows:
 & "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run --target upload --upload-port COM6
 ```
 
-Expected release-build baseline for `v1.3.0`:
+Expected release-build baseline for `v1.4.0`:
 
-- Internal RAM: about 65.4 KB.
-- Flash: about 1.201 MB of the 6.55 MB application partition.
+- Internal RAM: about 65.5 KB.
+- Flash: about 1.206 MB of the 6.55 MB application partition.
 - Normal warnings from the vendored Arduino_GFX library about
   `SPI_MAX_PIXELS_AT_ONCE` are pre-existing; investigate new warnings.
 
@@ -252,7 +259,7 @@ Do not hand-edit generated byte arrays in `src/prebaked_gauge_cache.cpp` or
 ImageMagick is required for GIF generation. Generate both unit demos with:
 
 ```powershell
-node tools/create_demo_gif.js 1.3.0
+node tools/create_demo_gif.js 1.4.0
 ```
 
 Replace the version argument for a new release. The generator must continue to

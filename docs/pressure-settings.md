@@ -119,9 +119,12 @@ Smoothing does not:
 - replace the invalid, stale and implausible-reading checks.
 
 Open the settings menu with a long press on the Civic logo. Select `EN` or
-`ES` at the top if necessary, press the `SMOOTH`/`SUAV.` button and select
-`OFF`/`SIN`, `EMA` or `1 EURO`. The active language, mode and all parameters
-are saved across restarts.
+`ES` on the first page if necessary, open `PRESSURE`/`PRESION`, then press the
+`SMOOTH`/`SUAV.` button and select `OFF`/`SIN`, `EMA` or `1 EURO`. One Euro is
+the factory-default mode. Existing persisted selections remain unchanged by a
+firmware update; the active language, mode and all parameters survive restarts.
+To adopt the v1.4.0 filter defaults on an upgraded device without changing its
+other settings, open the smoothing editor and press `RESET`.
 
 ## OFF: maximum immediacy
 
@@ -188,7 +191,7 @@ with less lag.
 - Higher `MIN`: follows small changes more readily, but allows more visible
   noise.
 
-The range is `0.5–5.0 Hz` in `0.1 Hz` steps. The default is `2.0 Hz`.
+The range is `0.5–5.0 Hz` in `0.1 Hz` steps. The default is `1.0 Hz`.
 The value is expressed in hertz because it is the cutoff frequency of the
 low-pass filter, not the sensor or display update rate.
 
@@ -202,14 +205,16 @@ low-pass filter, not the sensor or display update rate.
 - Excessively high beta: sharp noise and hand-generated pressure pulses can
   pass through more visibly.
 
-The range is `0.00–3.00` per kPa in `0.05` steps. The default is `1.00`.
+The range is `0.00–3.00` per kPa in `0.05` steps. The default is `0.25`.
 The derivative-filter cutoff remains fixed at `1 Hz` to keep the adaptation
 stable and is intentionally not exposed in the menu.
 
 ## Recommended tuning procedure
 
 Start by pressing `RESET`. This restores EMA alpha `0.35`, One Euro minimum
-cutoff `2.0 Hz` and beta `1.00` without changing the selected mode.
+cutoff `1.0 Hz` and beta `0.25` without changing the selected mode. These One
+Euro defaults deliberately add more damping than the previous `2.0/1.00`
+tuning to reduce visible electronic-wastegate jitter.
 
 For EMA:
 
@@ -221,7 +226,7 @@ For EMA:
 
 For One Euro:
 
-1. Begin at `MIN 2.0 Hz` and `BETA 1.00`.
+1. Begin at `MIN 1.0 Hz` and `BETA 0.25`.
 2. At a stable pressure, lower `MIN` until the desired stability is reached.
 3. Apply a quick, representative pressure change.
 4. Raise `BETA` until the transient response feels immediate enough.
@@ -242,15 +247,18 @@ confirmed in the car without interacting with the gauge while driving.
 | Simple light smoothing | EMA `0.50` |
 | Simple balanced smoothing | EMA `0.35` |
 | Maximum stability from EMA | EMA `0.15–0.25` |
-| Stable at rest and responsive on boost | One Euro `MIN 2.0`, `BETA 1.00` |
+| Default electronic-wastegate damping | One Euro `MIN 1.0`, `BETA 0.25` |
+| Faster adaptive boost response | One Euro `MIN 2.0`, `BETA 1.00` |
 
 These are starting points, not calibration values. The best setting depends on
 hose volume, installation, engine behavior and personal preference.
 
 ## Persistence and reset behavior
 
-The selected mode and its values are stored persistently:
+The interface language, selected mode and filter values are stored
+persistently:
 
+- interface language: EN or ES;
 - smoothing mode: OFF, EMA or One Euro;
 - EMA alpha;
 - One Euro minimum cutoff;
@@ -259,4 +267,6 @@ The selected mode and its values are stored persistently:
 `RESET` restores the three filter parameters to their defaults but deliberately
 keeps the currently selected mode. Switching to OFF does not erase the saved
 EMA or One Euro values, so either filtered mode can be selected again without
-re-entering its configuration.
+re-entering its configuration. The guarded `RESET ALL` action on the first
+settings page is different: after confirmation it restores every setting,
+including One Euro as the selected mode with `MIN 1.0` and `BETA 0.25`.
